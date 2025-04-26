@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, ChangeEvent } from 'react';
@@ -7,59 +8,62 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
 import { Search, Package, PackageSearch, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import Image from 'next/image';
-import { updateStockLevel, getStockLevel } from '@/services/stock-management'; // Import service functions
+// Import service functions if you have them, otherwise implement Firestore calls directly
+// import { updateStockLevel, getStockLevel } from '@/services/stock-management';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, doc, updateDoc, query, where, writeBatch } from 'firebase/firestore';
+import type { MenuItem } from '@/types/menu'; // Use MenuItem which includes quantityInStock
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Re-use type from menu page
-interface StockItem {
-  id: string;
-  name: string;
-  category: string;
-  imageUrl?: string;
-  quantityInStock: number;
+// Combine StockItem and MenuItem concept for simplicity here
+interface StockManagedItem extends Omit<MenuItem, 'description' | 'price'> {
+    // Inherits id, name, category, quantityInStock from MenuItem
 }
-
-// Placeholder Data - Replace with API call to fetch *all* items relevant for stock (not just menu items)
-const initialStockItems: StockItem[] = [
-  { id: '1', name: 'Classic Burger Patty', category: 'Ingredient', quantityInStock: 150 },
-  { id: 'item-lettuce', name: 'Lettuce Heads', category: 'Ingredient', quantityInStock: 25 },
-  { id: 'item-tomato', name: 'Tomatoes (kg)', category: 'Ingredient', quantityInStock: 15.5 },
-  { id: '3', name: 'Espresso Beans (kg)', category: 'Ingredient', quantityInStock: 8 },
-  { id: '4', name: 'Croissant (Frozen)', category: 'Prepared Item', quantityInStock: 0 },
-  { id: 'item-cheesecake-base', name: 'Cheesecake Base', category: 'Ingredient', quantityInStock: 10 },
-  { id: 'item-coke', name: 'Coca-Cola Can', category: 'Beverage', quantityInStock: 80 },
-  { id: 'item-water', name: 'Water Bottle', category: 'Beverage', quantityInStock: 120 },
-];
 
 const LOW_STOCK_THRESHOLD = 10; // Example threshold
 
 export default function ManageStockPage() {
-  const [stockItems, setStockItems] = useState<StockItem[]>([]);
-  const [filteredItems, setFilteredItems] = useState<StockItem[]>([]);
+  const [stockItems, setStockItems] = useState<StockManagedItem[]>([]);
+  const [filteredItems, setFilteredItems] = useState<StockManagedItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [updatedQuantities, setUpdatedQuantities] = useState<{ [key: string]: number }>({});
+  const [updatedQuantities, setUpdatedQuantities] = useState<{ [key: string]: number | '' }>({}); // Allow empty string for input clearing
   const [isLoading, setIsLoading] = useState(true); // For initial load
-  const [isSaving, setIsSaving] = useState(false); // For save operations
+  const [isSaving, setIsSaving] = useState<{ [key: string]: boolean }>({}); // Track saving state per item
   const { toast } = useToast();
 
+  // Fetch items from Firestore 'menuItems' collection
   useEffect(() => {
-    // TODO: Fetch stock items from backend/database
-    setIsLoading(true);
-    // Simulate fetching data
-    setTimeout(() => {
-       // Fetch initial quantities using the service (simulated)
-       const fetchPromises = initialStockItems.map(async (item) => {
-            // In reality, you might fetch all at once or individually
-            const currentQty = await getStockLevel(item.name); // Simulate fetching
-            return { ...item, quantityInStock: currentQty !== undefined ? currentQty : item.quantityInStock }; // Fallback to initial if fetch fails
-       });
-       Promise.all(fetchPromises).then(fetchedItems => {
-            setStockItems(fetchedItems);
-            setFilteredItems(fetchedItems);
-            setIsLoading(false);
-       });
-    }, 1000);
-  }, []);
+    const fetchStockItems = async () => {
+      setIsLoading(true);
+      try {
+        const menuCollection = collection(db, 'menuItems');
+        const q = query(menuCollection); // Fetch all items to manage stock
+        const querySnapshot = await getDocs(q);
+        const items: StockManagedItem[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          items.push({
+            id: doc.id,
+            name: data.name,
+            category: data.category,
+            quantityInStock: data.quantityInStock ?? 0, // Default to 0 if undefined
+          } as StockManagedItem);
+        });
+        setStockItems(items);
+        setFilteredItems(items);
+      } catch (error) {
+        console.error("Error fetching stock items:", error);
+        toast({
+          variant: "destructive",
+          title: "Error Loading Stock",
+          description: "Could not fetch stock items. Please try again.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchStockItems();
+  }, [toast]);
 
  useEffect(() => {
       const lowerCaseSearch = searchTerm.toLowerCase();
@@ -72,26 +76,32 @@ export default function ManageStockPage() {
 
 
   const handleQuantityChange = (itemId: string, value: string) => {
-    const quantity = parseInt(value, 10);
-     // Allow empty input for clearing, but store as NaN or handle validation on save
+    // Allow empty string or parse to number
+    const quantity = value === '' ? '' : parseInt(value, 10);
     setUpdatedQuantities(prev => ({
       ...prev,
-      [itemId]: isNaN(quantity) ? NaN : quantity, // Store NaN if input is not a valid number
+      [itemId]: isNaN(quantity as number) && value !== '' ? prev[itemId] : quantity, // Keep previous if parse fails but not empty
     }));
   };
 
  const handleSaveQuantity = async (itemId: string, itemName: string) => {
-    const newQuantity = updatedQuantities[itemId];
+    const newQuantityInput = updatedQuantities[itemId];
 
-    if (newQuantity === undefined || isNaN(newQuantity) || newQuantity < 0) {
+    // Validate: Must not be empty string and must be a non-negative number
+    if (newQuantityInput === '' || typeof newQuantityInput !== 'number' || isNaN(newQuantityInput) || newQuantityInput < 0) {
         toast({ variant: "destructive", title: "Invalid Quantity", description: `Please enter a valid non-negative quantity for ${itemName}.` });
         return;
     }
 
-    setIsSaving(true);
+     const newQuantity = newQuantityInput as number; // We know it's a valid number now
+
+    setIsSaving(prev => ({ ...prev, [itemId]: true }));
     try {
-        // Call the service function to update stock level
-        await updateStockLevel(itemName, newQuantity);
+        // Update stock level in Firestore
+        const itemRef = doc(db, "menuItems", itemId);
+        await updateDoc(itemRef, {
+            quantityInStock: newQuantity
+        });
 
         // Update local state on success
         setStockItems(prev =>
@@ -110,10 +120,25 @@ export default function ManageStockPage() {
         console.error("Error updating stock:", error);
         toast({ variant: "destructive", title: "Update Failed", description: `Could not update stock for ${itemName}.` });
     } finally {
-        setIsSaving(false);
+        setIsSaving(prev => ({ ...prev, [itemId]: false }));
     }
  };
 
+   const renderSkeletons = (rows: number) => (
+      Array.from({ length: rows }).map((_, index) => (
+          <TableRow key={`skeleton-row-${index}`}>
+               <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+               <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+               <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+               <TableCell>
+                    <div className="flex items-center gap-2">
+                       <Skeleton className="h-9 w-24" />
+                       <Skeleton className="h-9 w-16" />
+                    </div>
+               </TableCell>
+          </TableRow>
+      ))
+   );
 
   return (
     <div className="container mx-auto py-8">
@@ -129,33 +154,49 @@ export default function ManageStockPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-         {/* Add Button for adding new stock items if needed */}
-         {/* <Button><PlusCircle className="mr-2 h-4 w-4" /> Add Stock Item</Button> */}
+         {/* Add Button for adding new stock items if needed (would require adding to menuItems collection) */}
+         {/* <Button><PlusCircle className="mr-2 h-4 w-4" /> Add New Item to Track</Button> */}
       </div>
 
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>Stock Levels</CardTitle>
-          <CardDescription>View and update the quantity of ingredients and items.</CardDescription>
+          <CardDescription>View and update the quantity of menu items.</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-             <div className="text-center py-12"><p className="text-muted-foreground">Loading stock items...</p></div>
+              <Table>
+                  <TableHeader>
+                       <TableRow>
+                           <TableHead>Item Name</TableHead>
+                           <TableHead>Category</TableHead>
+                           <TableHead>Current Qty</TableHead>
+                           <TableHead>Update Qty</TableHead>
+                       </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                      {renderSkeletons(5)}
+                  </TableBody>
+              </Table>
            ) : filteredItems.length === 0 ? (
                 <div className="text-center py-12">
                     <PackageSearch className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No stock items found{searchTerm ? ' matching your search' : ''}.</p>
+                    <p className="text-muted-foreground">
+                        {stockItems.length === 0 ? 'No items found in the menu to track stock for.' : 'No stock items found matching your search.'}
+                    </p>
+                     {/* Optional: Add button to navigate to menu management if stock is empty */}
+                     {stockItems.length === 0 && <Link href="/chef/manage-menu"><Button className="mt-4">Manage Menu Items</Button></Link>}
                 </div>
             ) : (
              <Table>
                <TableCaption>Current inventory levels. Update quantities as needed.</TableCaption>
                <TableHeader>
                  <TableRow>
-                   <TableHead className="w-[80px]">Image</TableHead>
+                   {/* Removed Image Column */}
                    <TableHead>Item Name</TableHead>
                    <TableHead>Category</TableHead>
                    <TableHead className="w-[150px]">Current Qty</TableHead>
-                   <TableHead className="w-[180px]">Update Qty</TableHead>
+                   <TableHead className="w-[200px]">Update Qty</TableHead> {/* Increased width */}
                  </TableRow>
                </TableHeader>
                <TableBody>
@@ -163,15 +204,17 @@ export default function ManageStockPage() {
                     const isLowStock = item.quantityInStock <= LOW_STOCK_THRESHOLD && item.quantityInStock > 0;
                     const isOutOfStock = item.quantityInStock <= 0;
                     const currentInputValue = updatedQuantities[item.id];
-                    const isDirty = currentInputValue !== undefined; // Check if input has been touched
+                     // Input is considered dirty if it's not undefined (i.e., user has interacted with it)
+                    const isDirty = currentInputValue !== undefined;
+                     // Input is valid if it's dirty AND (it's an empty string OR (it's a number AND not NaN AND non-negative))
+                     const isValidInput = isDirty && (currentInputValue === '' || (typeof currentInputValue === 'number' && !isNaN(currentInputValue) && currentInputValue >= 0));
+                     // Save button enabled if input is valid AND not empty string
+                     const canSave = isValidInput && currentInputValue !== '';
+                     const savingThisItem = isSaving[item.id] || false;
 
                     return (
                       <TableRow key={item.id} className={isOutOfStock ? 'opacity-60' : ''}>
-                         <TableCell>
-                           <div className="relative h-12 w-16 rounded overflow-hidden">
-                             <Image src={item.imageUrl || 'https://picsum.photos/seed/stockplaceholder/200/150'} alt={item.name} layout="fill" objectFit="cover" />
-                           </div>
-                         </TableCell>
+                         {/* Removed Image Cell */}
                          <TableCell className="font-medium">{item.name}</TableCell>
                          <TableCell>{item.category}</TableCell>
                          <TableCell>
@@ -187,21 +230,23 @@ export default function ManageStockPage() {
                            <div className="flex items-center gap-2">
                              <Input
                                type="number"
-                               step="any" // Allow decimals for things like kg
+                               step="1" // Stock quantity is usually whole numbers
                                min="0"
                                className="h-9 w-24"
                                placeholder={String(item.quantityInStock)} // Show current as placeholder
-                               value={isNaN(currentInputValue) ? '' : currentInputValue ?? ''} // Handle NaN for empty input
+                               value={currentInputValue ?? ''} // Handle undefined/null by showing empty string
                                onChange={(e) => handleQuantityChange(item.id, e.target.value)}
-                               disabled={isSaving}
+                               disabled={savingThisItem}
+                               // Indicate error state visually if needed
+                               // className={cn("h-9 w-24", isDirty && !isValidInput ? "border-red-500 ring-red-500" : "")}
                              />
                              <Button
                                size="sm"
                                className="h-9"
                                onClick={() => handleSaveQuantity(item.id, item.name)}
-                               disabled={!isDirty || isNaN(updatedQuantities[item.id]) || updatedQuantities[item.id] < 0 || isSaving} // Disable if no change, invalid, or saving
+                               disabled={!canSave || savingThisItem} // Disable if input invalid or saving
                                >
-                               {isSaving ? 'Saving...' : 'Save'}
+                               {savingThisItem ? 'Saving...' : 'Save'}
                              </Button>
                            </div>
                          </TableCell>
@@ -216,3 +261,4 @@ export default function ManageStockPage() {
     </div>
   );
 }
+

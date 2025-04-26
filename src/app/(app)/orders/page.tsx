@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -9,20 +10,12 @@ import { Label } from "@/components/ui/label";
 import { MinusCircle, PlusCircle, Trash2, ShoppingCart } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import Link from 'next/link'; // Added Link import
+// Removed Image import
+import type { MenuItem } from '@/types/menu'; // Import MenuItem type
 
 // Assume cart state is managed globally (e.g., Zustand, Context) or passed via props/local storage
 // For this example, we'll simulate fetching/passing cart data.
-// Re-use types from menu page
-interface MenuItem {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  imageUrl?: string;
-  quantityInStock: number;
-}
 
 interface CartItem extends MenuItem {
   orderQuantity: number;
@@ -30,8 +23,8 @@ interface CartItem extends MenuItem {
 
 // Placeholder cart data - in a real app, this would come from state management
 const initialCart: CartItem[] = [
-   { id: '1', name: 'Classic Burger', description: 'Beef patty, lettuce, tomato, cheese, bun', price: 9.50, category: 'Lunch', imageUrl: 'https://picsum.photos/seed/burger/200/150', quantityInStock: 50, orderQuantity: 1 },
-   { id: '3', name: 'Espresso', description: 'Strong black coffee', price: 2.50, category: 'Beverage', imageUrl: 'https://picsum.photos/seed/coffee/200/150', quantityInStock: 100, orderQuantity: 2 },
+   { id: '1', name: 'Classic Burger', description: 'Beef patty, lettuce, tomato, cheese, bun', price: 9.50, category: 'Lunch', quantityInStock: 50, orderQuantity: 1 },
+   { id: '3', name: 'Espresso', description: 'Strong black coffee', price: 2.50, category: 'Beverage', quantityInStock: 100, orderQuantity: 2 },
 ];
 
 export default function OrderPage() {
@@ -44,13 +37,25 @@ export default function OrderPage() {
 
   const updateQuantity = (itemId: string, change: number) => {
     setCartItems(prevCart =>
-      prevCart.map(item =>
-        item.id === itemId
-          ? { ...item, orderQuantity: Math.max(0, item.orderQuantity + change) } // Ensure quantity doesn't go below 0
-          : item
-      ).filter(item => item.orderQuantity > 0) // Remove item if quantity is 0
+        prevCart.map(item => {
+            if (item.id === itemId) {
+                const newQuantity = Math.max(0, item.orderQuantity + change);
+                // Prevent increasing quantity beyond stock
+                if (change > 0 && newQuantity > item.quantityInStock) {
+                    toast({
+                        variant: "destructive",
+                        title: "Stock Limit Reached",
+                        description: `Only ${item.quantityInStock} of ${item.name} available.`
+                    });
+                    return item; // Return original item without change
+                }
+                return { ...item, orderQuantity: newQuantity };
+            }
+            return item;
+        }).filter(item => item.orderQuantity > 0) // Remove item if quantity becomes 0
     );
   };
+
 
    const removeItem = (itemId: string) => {
     setCartItems(prevCart => prevCart.filter(item => item.id !== itemId));
@@ -69,20 +74,26 @@ export default function OrderPage() {
     setIsLoading(true);
 
     const orderData = {
-      items: cartItems.map(item => ({ id: item.id, quantity: item.orderQuantity })),
+      items: cartItems.map(item => ({
+          id: item.id,
+          name: item.name, // Include name and price for bill generation
+          price: item.price,
+          quantity: item.orderQuantity
+        })),
       total: calculateTotal(),
       notes: notes,
       preferredTime: dinnerTime,
       orderTimestamp: new Date().toISOString(),
       // userId: 'current_user_id' // Get from auth context
+      // status: 'Pending' // Initial status
     };
 
     // TODO: Implement actual order placement logic
-    // 1. Send order data to backend/Firebase function
-    // 2. Update user's bill in the database
-    // 3. Update stock levels (potentially needs transactional logic)
+    // 1. Send order data to backend/Firebase function (e.g., add to 'orders' collection)
+    // 2. Update user's bill in the database (e.g., add items to a 'userBills' collection or similar)
+    // 3. Update stock levels in 'menuItems' collection (potentially needs transactional logic)
     // 4. Send push notification to Chef
-    // 5. Clear the cart state
+    // 5. Clear the cart state (e.g., from localStorage or global state)
 
     // Placeholder logic
     await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate API call
@@ -90,7 +101,7 @@ export default function OrderPage() {
     toast({ title: "Order Placed Successfully!", description: `Total: $${calculateTotal().toFixed(2)}. The chef has been notified.` });
 
     // Simulate clearing cart and redirecting
-    setCartItems([]);
+    setCartItems([]); // Clear local cart state
     setNotes('');
     setDinnerTime('');
     setIsLoading(false);
@@ -122,14 +133,11 @@ export default function OrderPage() {
             <h2 className="text-xl font-semibold">Order Items</h2>
             {cartItems.map(item => (
               <Card key={item.id} className="flex items-center p-4 gap-4 shadow-sm">
-                 {item.imageUrl && (
-                   <div className="relative h-16 w-16 rounded overflow-hidden shrink-0">
-                     <Image src={item.imageUrl} alt={item.name} layout="fill" objectFit="cover" />
-                   </div>
-                 )}
+                 {/* Removed Image section */}
                 <div className="flex-grow">
                   <h3 className="font-medium">{item.name}</h3>
                   <p className="text-sm text-muted-foreground">${item.price.toFixed(2)} each</p>
+                  <p className="text-xs text-muted-foreground">Stock: {item.quantityInStock}</p> {/* Show stock */}
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, -1)}>
@@ -174,6 +182,7 @@ export default function OrderPage() {
                     onChange={(e) => setDinnerTime(e.target.value)}
                     disabled={isLoading}
                   />
+                  <p className="text-xs text-muted-foreground">Specify a time if you don't want your order ASAP.</p>
                 </div>
                 <div className="flex justify-between items-center pt-4 border-t">
                   <span className="text-lg font-semibold">Total:</span>
@@ -181,7 +190,7 @@ export default function OrderPage() {
                 </div>
               </CardContent>
               <CardFooter>
-                <Button className="w-full bg-primary hover:bg-primary/90" onClick={handlePlaceOrder} disabled={isLoading}>
+                <Button className="w-full bg-primary hover:bg-primary/90" onClick={handlePlaceOrder} disabled={isLoading || cartItems.length === 0}>
                   {isLoading ? 'Placing Order...' : 'Place Order'}
                 </Button>
               </CardFooter>

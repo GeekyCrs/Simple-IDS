@@ -1,15 +1,14 @@
 "use client";
 
+import React from 'react';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import AppSidebar from '@/components/app/app-sidebar';
 
-export default function AppLayout({
-  children,
-}: {
+interface SidebarWrapperProps {
   children: React.ReactNode;
-}) {
-  // Important: The AuthProvider is already applied in the root layout
-  // so we only need to add the SidebarProvider here
+}
+
+export default function SidebarWrapper({ children }: SidebarWrapperProps) {
   return (
     <SidebarProvider>
       <div className="flex min-h-screen">

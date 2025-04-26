@@ -1,22 +1,28 @@
+
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { 
-  BarChart3, 
-  Users, 
-  Settings, 
-  Menu, 
+import {
+  BarChart3,
+  Users,
+  Settings,
+  Menu,
   X,
   LogOut,
-  User
+  User,
+  BookOpen,
+  Package,
+  FileText,
+  UtensilsCrossed
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { signOut } from "@/lib/auth-utils";
 import ProtectedRoute from "@/components/protected-route";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils"; // Import cn utility
 
 interface ManagerLayoutProps {
   children: React.ReactNode;
@@ -29,10 +35,15 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
   const { toast } = useToast();
 
   // Navigation items - ensure paths match your route structure
+  // Added explicit manager dashboard link and settings link
   const navigation = [
-    { name: "Dashboard", href: "/manager", icon: BarChart3 },
+    { name: "Dashboard", href: "/manager/dashboard", icon: BarChart3 },
     { name: "Manage Users", href: "/manager/manage-users", icon: Users },
-    { name: "Settings", href: "/manager/settings", icon: Settings },
+    { name: "Manage Menu", href: "/manager/manage-menu", icon: BookOpen },
+    { name: "Manage Stock", href: "/manager/manage-stock", icon: Package },
+    { name: "All Bills", href: "/manager/all-bills", icon: FileText },
+    { name: "Orders Queue", href: "/chef/orders-queue", icon: UtensilsCrossed },
+    { name: "Settings", href: "/manager/settings", icon: Settings }, // Added Settings link
   ];
 
   const handleSignOut = async () => {
@@ -42,6 +53,8 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
         title: "Signed out",
         description: "You have been successfully signed out."
       });
+       // Use window.location for a more reliable redirect after logout to clear context/cache
+       window.location.href = '/login';
     } else {
       toast({
         variant: "destructive",
@@ -58,7 +71,7 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
         <div className="lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center p-4 bg-background border-b">
           <button
             type="button"
-            className="-ml-0.5 -mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-slate-100"
+            className="-ml-0.5 -mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground" // Use accent for hover
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >
             <span className="sr-only">Open sidebar</span>
@@ -90,7 +103,7 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
             <div className="flex h-16 flex-shrink-0 items-center px-6">
               <h2 className="text-lg font-semibold">Manager Dashboard</h2>
             </div>
-            
+
             {/* User info */}
             <div className="border-t border-b py-4 px-6">
               <div className="flex items-center gap-3">
@@ -108,21 +121,31 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
             <nav className="flex-1 overflow-y-auto py-4 px-3">
               <ul className="space-y-1">
                 {navigation.map((item) => {
-                  const isActive = pathname === item.href;
+                  // Match exactly or if it's a parent route and current path starts with it
+                   const isActive = pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/manager/dashboard');
+                   // Special case for dashboard to avoid matching everything under /manager
+                   const isDashboardActive = pathname === '/manager/dashboard';
+                   const activeCondition = item.href === '/manager/dashboard' ? isDashboardActive : isActive;
+
                   return (
                     <li key={item.name}>
                       <Link
                         href={item.href}
-                        className={`group flex items-center rounded-md px-3 py-2 text-sm font-medium ${
-                          isActive
-                            ? "bg-primary text-primary-foreground"
-                            : "hover:bg-accent hover:text-accent-foreground"
-                        }`}
+                        className={cn(
+                          "group flex items-center rounded-md px-3 py-2 text-sm font-medium",
+                          activeCondition
+                            ? "bg-primary text-primary-foreground" // Active style
+                            : "hover:bg-accent hover:text-accent-foreground" // Hover style: orange background, white text
+                        )}
+                         onClick={() => sidebarOpen && setSidebarOpen(false)} // Close mobile sidebar on link click
                       >
                         <item.icon
-                          className={`mr-3 h-5 w-5 flex-shrink-0 ${
-                            isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-accent-foreground"
-                          }`}
+                          className={cn(
+                             "mr-3 h-5 w-5 flex-shrink-0",
+                             activeCondition
+                              ? "text-primary-foreground"
+                              : "text-muted-foreground group-hover:text-accent-foreground" // Icon color on hover
+                          )}
                           aria-hidden="true"
                         />
                         {item.name}
@@ -137,7 +160,7 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
             <div className="flex-shrink-0 border-t p-4">
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-start hover:bg-accent hover:text-accent-foreground" // Hover effect for sign out
                 onClick={handleSignOut}
               >
                 <LogOut className="mr-2 h-4 w-4" />
@@ -150,7 +173,8 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
         {/* Main content */}
         <div className="lg:pl-64">
           <div className="py-6 lg:py-8">
-            <div className="pt-10 lg:pt-0">{children}</div>
+             {/* Add padding-top for mobile header */}
+            <div className="pt-16 lg:pt-0">{children}</div>
           </div>
         </div>
       </div>

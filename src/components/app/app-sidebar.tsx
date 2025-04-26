@@ -2,7 +2,7 @@
 "use client";
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { Home, UtensilsCrossed, BookOpen, History, Settings, LogOut, Users, Package, ChefHat, FileText, UserCog, LayoutDashboard } from 'lucide-react'; // Added LayoutDashboard
 import {
   Sidebar,
@@ -22,20 +22,19 @@ import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { auth } from '@/lib/firebase'; // Correct import path
-import { signOut } from 'firebase/auth';
+import { signOut as firebaseSignOut } from 'firebase/auth'; // Renamed import
+import { auth } from '@/lib/firebase'; // Correct import path for auth instance
 import { useAuth } from '@/lib/auth-context'; // Import useAuth hook
 
 export default function AppSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { toast } = useToast();
   const { user, loading } = useAuth(); // Use the context hook
   const { state } = useSidebar(); // Sidebar state hook
 
   const handleLogout = async () => {
     try {
-      await signOut(auth); // Use Firebase signOut
+      await firebaseSignOut(auth); // Use Firebase signOut with the auth instance
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
       // Use window.location for a more reliable redirect after logout to clear context/cache
       window.location.href = '/login';
@@ -52,7 +51,7 @@ export default function AppSidebar() {
 
   // Define links relative to the root (correct for App Router groups)
   const commonLinks = [
-    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }, // Changed icon
+    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/menu', label: 'Menu', icon: BookOpen },
     { href: '/orders', label: 'Place Order', icon: UtensilsCrossed },
     { href: '/order-history', label: 'Order History', icon: History },
@@ -66,21 +65,22 @@ export default function AppSidebar() {
     { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed },
   ];
 
+  // Updated manager links to include Settings
   const managerLinks = [
     { href: '/manager/dashboard', label: 'Manager Dash', icon: Settings },
     { href: '/manager/manage-menu', label: 'Manage Menu', icon: BookOpen },
     { href: '/manager/manage-stock', label: 'Manage Stock', icon: Package },
     { href: '/manager/all-bills', label: 'All Bills', icon: FileText },
     { href: '/manager/manage-users', label: 'Manage Users', icon: UserCog },
-    { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed }, // Manager can also view queue
+    { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed },
+    { href: '/manager/settings', label: 'Settings', icon: Settings }, // Added Settings link
   ];
 
-  // No need to prefix links with '/app' anymore as route groups handle this
 
   // Determine links based on fetched role
   const role = user?.role || 'client'; // Get role from context
   const navLinks = role === 'chef' ? chefLinks : role === 'manager' ? managerLinks : commonLinks;
-  // Define base path for active link highlighting (used to avoid highlighting parent when child is active)
+  // Define base path for active link highlighting
   const baseHref = role === 'chef' ? '/chef' : role === 'manager' ? '/manager' : '';
 
 
@@ -128,8 +128,13 @@ export default function AppSidebar() {
 
    // Determine if a link is active
    const isActiveLink = (href: string) => {
-     // Exact match or prefix match (but not for the base href itself)
-     return pathname === href || (pathname.startsWith(href) && href.length > (baseHref || '').length + 1 && href !== baseHref );
+      // Exact match required for dashboards
+      if (href === '/dashboard' || href === '/chef/dashboard' || href === '/manager/dashboard') {
+          return pathname === href;
+      }
+      // For other links, check if the current path starts with the link's href
+      // Ensure it's not just the base path matching itself if baseHref exists
+      return pathname.startsWith(href) && (baseHref ? href.length > baseHref.length : true);
    }
 
   return (
@@ -158,10 +163,18 @@ export default function AppSidebar() {
                      <Link href={link.href} passHref>
                        <SidebarMenuButton
                          isActive={isActiveLink(link.href)}
-                         className="justify-start"
+                         className={cn(
+                             "justify-start",
+                             // Apply hover styles only when not active
+                             !isActiveLink(link.href) && "hover:bg-accent hover:text-accent-foreground"
+                         )}
                          aria-label={link.label}
                        >
-                         <link.icon className="shrink-0" />
+                         <link.icon className={cn(
+                            "shrink-0",
+                             // Icon color changes on hover only if not active
+                             !isActiveLink(link.href) && "group-hover:text-accent-foreground"
+                           )} />
                          <span className={cn("transition-opacity duration-200", state === 'collapsed' ? 'opacity-0' : 'opacity-100')}>{link.label}</span>
                        </SidebarMenuButton>
                      </Link>
@@ -205,7 +218,7 @@ export default function AppSidebar() {
            {state === 'collapsed' && (
              <Tooltip>
                <TooltipTrigger asChild>
-                 <Button variant="ghost" size="icon" className="w-full mt-2 h-8" onClick={handleLogout} aria-label="Logout">
+                 <Button variant="ghost" size="icon" className="w-full mt-2 h-8 hover:bg-accent hover:text-accent-foreground" onClick={handleLogout} aria-label="Logout">
                    <LogOut size={16} />
                  </Button>
                </TooltipTrigger>

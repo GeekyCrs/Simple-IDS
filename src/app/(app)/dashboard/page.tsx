@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Button } from "@/components/ui/button";
@@ -5,14 +6,15 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { BellRing, Check, Utensils, BookOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
-import Image from "next/image";
+// Removed Image import
 
 // Placeholder data - replace with data fetched from backend/database
+// Removed imageUrl from dailyMeal object
 const dailyMeal = {
   name: "Chef's Special Pasta",
   description: "Creamy tomato pasta with grilled chicken and fresh basil.",
   price: 12.50,
-  imageUrl: "https://picsum.photos/seed/pasta/400/200", // Placeholder image
+  // imageUrl: "https://picsum.photos/seed/pasta/400/200", // Removed
   available: true, // Chef posts this
 };
 
@@ -51,11 +53,7 @@ export default function ClientDashboardPage() { // Renamed component
           <CardContent className="space-y-4">
             {dailyMeal.available ? (
               <>
-                {dailyMeal.imageUrl && (
-                  <div className="relative h-40 w-full rounded-md overflow-hidden mb-4">
-                     <Image src={dailyMeal.imageUrl} alt={dailyMeal.name} layout="fill" objectFit="cover" />
-                  </div>
-                 )}
+                {/* Removed Image display section */}
                 <h3 className="text-lg font-semibold">{dailyMeal.name}</h3>
                 <p className="text-sm text-muted-foreground">{dailyMeal.description}</p>
                 <p className="text-lg font-bold text-primary">${dailyMeal.price.toFixed(2)}</p>
@@ -81,13 +79,13 @@ export default function ClientDashboardPage() { // Renamed component
             </CardTitle>
             <CardDescription>Need something specific? Place a custom order.</CardDescription>
           </CardHeader>
-          <CardContent className="flex items-center justify-center h-[190px]">
-             {/* Reduced height */}
+           {/* Adjusted height and content for consistency */}
+           <CardContent className="flex items-center justify-center h-[160px]">
             <p className="text-muted-foreground text-center">Browse the menu to add items.</p>
           </CardContent>
           <CardFooter>
-            <Link href="/app/orders" passHref className="w-full">
-               <Button variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
+            <Link href="/orders" passHref className="w-full">
+               <Button variant="outline" className="w-full border-primary text-primary hover:bg-accent hover:text-accent-foreground hover:border-accent">
                  Place Custom Order
                </Button>
              </Link>
@@ -102,13 +100,13 @@ export default function ClientDashboardPage() { // Renamed component
              </CardTitle>
              <CardDescription>See all available items, including drinks and desserts.</CardDescription>
            </CardHeader>
-           <CardContent className="flex items-center justify-center h-[190px]">
-              {/* Reduced height */}
+           {/* Adjusted height and content for consistency */}
+           <CardContent className="flex items-center justify-center h-[160px]">
              <p className="text-muted-foreground text-center">Explore all categories.</p>
            </CardContent>
            <CardFooter>
-            <Link href="/app/menu" passHref className="w-full">
-               <Button variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
+            <Link href="/menu" passHref className="w-full">
+               <Button variant="outline" className="w-full border-primary text-primary hover:bg-accent hover:text-accent-foreground hover:border-accent">
                  Browse Menu
                </Button>
              </Link>
@@ -118,3 +116,4 @@ export default function ClientDashboardPage() { // Renamed component
     </div>
   );
 }
+

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -7,48 +8,62 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BookOpen, PlusCircle, Edit, Trash2, Search, PackageSearch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import Image from 'next/image';
+import { db } from '@/lib/firebase'; // Import Firestore instance
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore'; // Firestore imports
+import type { MenuItem } from '@/types/menu'; // Import updated type
+import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 
-// Re-use type from menu page, add quantityInStock
-interface MenuItem {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  imageUrl?: string;
-  quantityInStock: number; // Essential for management
-}
-
-// Placeholder Data - Replace with API call
-const initialMenuItems: MenuItem[] = [
-  { id: '1', name: 'Classic Burger', description: 'Beef patty, lettuce, tomato, cheese, bun', price: 9.50, category: 'Lunch', imageUrl: 'https://picsum.photos/seed/burger/200/150', quantityInStock: 50 },
-  { id: '2', name: 'Caesar Salad', description: 'Romaine lettuce, croutons, parmesan, Caesar dressing', price: 7.00, category: 'Lunch', imageUrl: 'https://picsum.photos/seed/salad/200/150', quantityInStock: 30 },
-  { id: '3', name: 'Espresso', description: 'Strong black coffee', price: 2.50, category: 'Beverage', imageUrl: 'https://picsum.photos/seed/coffee/200/150', quantityInStock: 100 },
-  { id: '4', name: 'Croissant', description: 'Flaky butter croissant', price: 3.00, category: 'Breakfast', imageUrl: 'https://picsum.photos/seed/croissant/200/150', quantityInStock: 0 }, // Example out of stock
-  { id: '5', name: 'Cheesecake', description: 'Creamy New York style cheesecake', price: 5.50, category: 'Dessert', imageUrl: 'https://picsum.photos/seed/cheesecake/200/150', quantityInStock: 20 },
-];
+// Removed initial placeholder data
 
 const categories = ['Breakfast', 'Lunch', 'Dinner', 'Beverage', 'Dessert', 'Snack']; // Available categories
 
 export default function ManageMenuPage() {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems); // Replace with fetched data
-  const [filteredItems, setFilteredItems] = useState<MenuItem[]>(initialMenuItems);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]); // Start with empty array
+  const [filteredItems, setFilteredItems] = useState<MenuItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
-  const [formData, setFormData] = useState<Partial<MenuItem>>({});
-  const [isLoading, setIsLoading] = useState(false);
+  // Ensure formData aligns with MenuItem type, excluding 'id' for new items
+  const [formData, setFormData] = useState<Omit<MenuItem, 'id'>>({
+      name: '', description: '', price: 0, category: categories[0], quantityInStock: 0
+  });
+  const [isLoading, setIsLoading] = useState(true); // Changed initial state to true
+  const [isSaving, setIsSaving] = useState(false); // For save/delete operations
   const { toast } = useToast();
 
+  // Fetch menu items from Firestore
   useEffect(() => {
-    // TODO: Fetch menu items from backend
-  }, []);
+    const fetchMenuItems = async () => {
+      setIsLoading(true);
+      try {
+        const menuCollection = collection(db, 'menuItems');
+        const q = query(menuCollection, orderBy('category'), orderBy('name')); // Order by category then name
+        const querySnapshot = await getDocs(q);
+        const items: MenuItem[] = [];
+        querySnapshot.forEach((doc) => {
+          items.push({ id: doc.id, ...doc.data() } as MenuItem);
+        });
+        setMenuItems(items);
+        setFilteredItems(items);
+      } catch (error) {
+        console.error("Error fetching menu items:", error);
+        toast({
+          variant: "destructive",
+          title: "Error Loading Menu",
+          description: "Could not fetch menu items. Please try again.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchMenuItems();
+  }, [toast]);
 
+  // Filter logic
   useEffect(() => {
       const lowerCaseSearch = searchTerm.toLowerCase();
       const filtered = menuItems.filter(item =>
@@ -58,11 +73,17 @@ export default function ManageMenuPage() {
       setFilteredItems(filtered);
   }, [searchTerm, menuItems]);
 
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: name === 'price' || name === 'quantityInStock' ? Number(value) : value }));
-  };
+    // Use parseFloat for price, parseInt for quantity
+    let processedValue: string | number = value;
+    if (name === 'price') {
+        processedValue = value === '' ? '' : parseFloat(value) || 0; // Allow empty string or parse float
+    } else if (name === 'quantityInStock') {
+        processedValue = value === '' ? '' : parseInt(value, 10) || 0; // Allow empty string or parse int
+    }
+    setFormData(prev => ({ ...prev, [name]: processedValue }));
+};
 
   const handleSelectChange = (value: string) => {
      setFormData(prev => ({ ...prev, category: value }));
@@ -70,39 +91,53 @@ export default function ManageMenuPage() {
 
   const openDialog = (item: MenuItem | null = null) => {
     setEditingItem(item);
-    setFormData(item ? { ...item } : { name: '', description: '', price: 0, category: categories[0], quantityInStock: 0, imageUrl: '' });
+    // If editing, populate form with item data (excluding id). If adding, reset form.
+    setFormData(item ? {
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        category: item.category,
+        quantityInStock: item.quantityInStock,
+    } : { name: '', description: '', price: 0, category: categories[0], quantityInStock: 0 });
     setIsDialogOpen(true);
   };
 
   const closeDialog = () => {
     setIsDialogOpen(false);
     setEditingItem(null);
-    setFormData({});
+    setFormData({ name: '', description: '', price: 0, category: categories[0], quantityInStock: 0 }); // Reset form
   };
 
   const handleFormSubmit = async () => {
-    setIsLoading(true);
-    const dataToSave = { ...formData };
+    setIsSaving(true); // Use isSaving state
 
-    if (!dataToSave.name || !dataToSave.category || dataToSave.price == null || dataToSave.price <= 0 || dataToSave.quantityInStock == null || dataToSave.quantityInStock < 0) {
-        toast({ variant: "destructive", title: "Validation Error", description: "Please fill in Name, Category, valid Price, and non-negative Stock Quantity." });
-        setIsLoading(false);
+     // Validate required fields and numeric values
+    if (!formData.name || !formData.category || formData.price == null || formData.price <= 0 || formData.quantityInStock == null || formData.quantityInStock < 0) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Please fill in Name, Category, a valid positive Price, and a non-negative Stock Quantity." });
+        setIsSaving(false);
         return;
     }
 
+    // Ensure numeric fields are numbers before saving
+    const dataToSave = {
+      ...formData,
+      price: Number(formData.price),
+      quantityInStock: Number(formData.quantityInStock),
+    };
+
     try {
       if (editingItem) {
-        // TODO: Update item in backend
-        console.log("Updating item:", editingItem.id, dataToSave);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
-        setMenuItems(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...dataToSave } as MenuItem : item));
+        // Update item in Firestore
+        const itemRef = doc(db, 'menuItems', editingItem.id);
+        await updateDoc(itemRef, dataToSave);
+        // Update local state
+        setMenuItems(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...dataToSave } : item));
         toast({ title: "Item Updated", description: `${dataToSave.name} has been updated.` });
       } else {
-        // TODO: Add new item to backend
-        const newItemId = `new-${Date.now()}`; // Generate temporary ID, backend should generate real one
-        const newItem = { ...dataToSave, id: newItemId } as MenuItem;
-        console.log("Adding new item:", newItem);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
+        // Add new item to Firestore
+        const docRef = await addDoc(collection(db, 'menuItems'), dataToSave);
+        // Update local state with the new item including the Firestore-generated ID
+        const newItem = { ...dataToSave, id: docRef.id };
         setMenuItems(prev => [...prev, newItem]);
         toast({ title: "Item Added", description: `${newItem.name} has been added to the menu.` });
       }
@@ -111,28 +146,46 @@ export default function ManageMenuPage() {
       console.error("Error saving item:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not save menu item." });
     } finally {
-      setIsLoading(false);
+      setIsSaving(false); // End saving operation
     }
   };
 
   const handleDeleteItem = async (itemId: string, itemName: string) => {
-    if (!confirm(`Are you sure you want to delete "${itemName}"? This cannot be undone.`)) {
+    // Use confirm dialog (browser native)
+    const confirmDelete = window.confirm(`Are you sure you want to delete "${itemName}"? This action cannot be undone.`);
+    if (!confirmDelete) {
       return;
     }
-    setIsLoading(true);
+
+    setIsSaving(true); // Indicate processing
     try {
-      // TODO: Delete item from backend
-      console.log("Deleting item:", itemId);
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
+      // Delete item from Firestore
+      await deleteDoc(doc(db, 'menuItems', itemId));
+      // Update local state
       setMenuItems(prev => prev.filter(item => item.id !== itemId));
       toast({ title: "Item Deleted", description: `${itemName} has been removed from the menu.` });
     } catch (error) {
       console.error("Error deleting item:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not delete menu item." });
     } finally {
-      setIsLoading(false);
+      setIsSaving(false); // End processing
     }
   };
+
+   const renderSkeletons = (rows: number) => (
+      Array.from({ length: rows }).map((_, index) => (
+          <TableRow key={`skeleton-row-${index}`}>
+               <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+               <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+               <TableCell><Skeleton className="h-5 w-12" /></TableCell>
+               <TableCell><Skeleton className="h-5 w-10" /></TableCell>
+               <TableCell className="text-right space-x-2">
+                  <Skeleton className="h-8 w-8 inline-block" />
+                  <Skeleton className="h-8 w-8 inline-block" />
+               </TableCell>
+          </TableRow>
+      ))
+   );
 
   return (
     <div className="container mx-auto py-8">
@@ -161,18 +214,37 @@ export default function ManageMenuPage() {
           <CardDescription>Add, edit, or remove items available in the canteen.</CardDescription>
         </CardHeader>
         <CardContent>
-           {filteredItems.length === 0 ? (
+           {isLoading ? (
+              <Table>
+                  <TableHeader>
+                       <TableRow>
+                           <TableHead>Name</TableHead>
+                           <TableHead>Category</TableHead>
+                           <TableHead>Price</TableHead>
+                           <TableHead>Stock Qty</TableHead>
+                           <TableHead className="text-right">Actions</TableHead>
+                       </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                      {renderSkeletons(5)}
+                  </TableBody>
+              </Table>
+           ) : filteredItems.length === 0 ? (
                 <div className="text-center py-12">
                     <PackageSearch className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No menu items found{searchTerm ? ' matching your search' : ''}.</p>
-                    {!searchTerm && <Button onClick={() => openDialog()} className="mt-4">Add Your First Item</Button>}
+                    <p className="text-muted-foreground">
+                        {menuItems.length === 0 ? 'The menu is currently empty.' : 'No menu items found matching your search.'}
+                    </p>
+                    {menuItems.length === 0 && !searchTerm && (
+                         <Button onClick={() => openDialog()} className="mt-4 bg-primary hover:bg-primary/90">Add Your First Item</Button>
+                    )}
                 </div>
             ) : (
              <Table>
                <TableCaption>List of all menu items.</TableCaption>
                <TableHeader>
                  <TableRow>
-                   <TableHead className="w-[80px]">Image</TableHead>
+                   {/* Removed Image Column */}
                    <TableHead>Name</TableHead>
                    <TableHead>Category</TableHead>
                    <TableHead>Price</TableHead>
@@ -183,20 +255,16 @@ export default function ManageMenuPage() {
                <TableBody>
                  {filteredItems.map((item) => (
                    <TableRow key={item.id}>
-                    <TableCell>
-                        <div className="relative h-12 w-16 rounded overflow-hidden">
-                            <Image src={item.imageUrl || 'https://picsum.photos/seed/placeholder/200/150'} alt={item.name} layout="fill" objectFit="cover" />
-                        </div>
-                    </TableCell>
+                    {/* Removed Image Cell */}
                      <TableCell className="font-medium">{item.name}</TableCell>
                      <TableCell>{item.category}</TableCell>
                      <TableCell>${item.price.toFixed(2)}</TableCell>
                      <TableCell>{item.quantityInStock}</TableCell>
                      <TableCell className="text-right">
-                       <Button variant="ghost" size="icon" className="mr-2 h-8 w-8" onClick={() => openDialog(item)} disabled={isLoading}>
+                       <Button variant="ghost" size="icon" className="mr-2 h-8 w-8" onClick={() => openDialog(item)} disabled={isSaving}>
                          <Edit className="h-4 w-4" />
                        </Button>
-                       <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={() => handleDeleteItem(item.id, item.name)} disabled={isLoading}>
+                       <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={() => handleDeleteItem(item.id, item.name)} disabled={isSaving}>
                          <Trash2 className="h-4 w-4" />
                        </Button>
                      </TableCell>
@@ -209,7 +277,7 @@ export default function ManageMenuPage() {
       </Card>
 
       {/* Add/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => !isSaving && setIsDialogOpen(open)}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Menu Item' : 'Add New Menu Item'}</DialogTitle>
@@ -220,15 +288,15 @@ export default function ManageMenuPage() {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="name" className="text-right">Name</Label>
-              <Input id="name" name="name" value={formData.name || ''} onChange={handleInputChange} className="col-span-3" required />
+              <Input id="name" name="name" value={formData.name || ''} onChange={handleInputChange} className="col-span-3" required disabled={isSaving} />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="description" className="text-right">Description</Label>
-              <Textarea id="description" name="description" value={formData.description || ''} onChange={handleInputChange} className="col-span-3" rows={3} />
+              <Textarea id="description" name="description" value={formData.description || ''} onChange={handleInputChange} className="col-span-3" rows={3} disabled={isSaving}/>
             </div>
              <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="category" className="text-right">Category</Label>
-                <Select name="category" value={formData.category} onValueChange={handleSelectChange}>
+                <Select name="category" value={formData.category} onValueChange={handleSelectChange} disabled={isSaving}>
                     <SelectTrigger className="col-span-3">
                       <SelectValue placeholder="Select a category" />
                     </SelectTrigger>
@@ -241,23 +309,20 @@ export default function ManageMenuPage() {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="price" className="text-right">Price ($)</Label>
-              <Input id="price" name="price" type="number" step="0.01" min="0.01" value={formData.price || ''} onChange={handleInputChange} className="col-span-3" required />
+              <Input id="price" name="price" type="number" step="0.01" min="0.01" value={formData.price || ''} onChange={handleInputChange} className="col-span-3" required disabled={isSaving} />
             </div>
              <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="quantityInStock" className="text-right">Stock Qty</Label>
-              <Input id="quantityInStock" name="quantityInStock" type="number" step="1" min="0" value={formData.quantityInStock ?? ''} onChange={handleInputChange} className="col-span-3" required />
+              <Input id="quantityInStock" name="quantityInStock" type="number" step="1" min="0" value={formData.quantityInStock ?? ''} onChange={handleInputChange} className="col-span-3" required disabled={isSaving} />
             </div>
-             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="imageUrl" className="text-right">Image URL</Label>
-              <Input id="imageUrl" name="imageUrl" value={formData.imageUrl || ''} onChange={handleInputChange} className="col-span-3" placeholder="(Optional) https://..." />
-            </div>
+            {/* Removed Image URL input */}
           </div>
           <DialogFooter>
              <DialogClose asChild>
-                <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={closeDialog} disabled={isSaving}>Cancel</Button>
              </DialogClose>
-             <Button type="button" onClick={handleFormSubmit} disabled={isLoading} className="bg-primary hover:bg-primary/90">
-                {isLoading ? 'Saving...' : 'Save Item'}
+             <Button type="button" onClick={handleFormSubmit} disabled={isSaving} className="bg-primary hover:bg-primary/90">
+                {isSaving ? 'Saving...' : 'Save Item'}
              </Button>
           </DialogFooter>
         </DialogContent>

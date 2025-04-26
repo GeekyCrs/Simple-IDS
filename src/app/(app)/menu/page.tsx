@@ -1,50 +1,65 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Utensils, Search, PlusCircle, MinusCircle, ShoppingCart } from "lucide-react";
-import Image from 'next/image';
+import { BookOpen, Search, PlusCircle, ShoppingCart, PackageSearch } from "lucide-react"; // Updated imports
 import { useToast } from '@/hooks/use-toast';
+import Link from 'next/link';
+import { db } from '@/lib/firebase'; // Import Firestore instance
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import type { MenuItem } from '@/types/menu'; // Import updated type
+import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 
-// Placeholder Types - Define actual types based on your data structure
-interface MenuItem {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string; // e.g., 'Breakfast', 'Lunch', 'Dinner', 'Beverage', 'Dessert'
-  imageUrl?: string;
-  quantityInStock: number; // Needed for stock display
-}
-
+// CartItem type might be needed if cart functionality is kept/updated
 interface CartItem extends MenuItem {
   orderQuantity: number;
 }
-
-// Placeholder Data - Replace with API call
-const initialMenuItems: MenuItem[] = [
-  { id: '1', name: 'Classic Burger', description: 'Beef patty, lettuce, tomato, cheese, bun', price: 9.50, category: 'Lunch', imageUrl: 'https://picsum.photos/seed/burger/200/150', quantityInStock: 50 },
-  { id: '2', name: 'Caesar Salad', description: 'Romaine lettuce, croutons, parmesan, Caesar dressing', price: 7.00, category: 'Lunch', imageUrl: 'https://picsum.photos/seed/salad/200/150', quantityInStock: 30 },
-  { id: '3', name: 'Espresso', description: 'Strong black coffee', price: 2.50, category: 'Beverage', imageUrl: 'https://picsum.photos/seed/coffee/200/150', quantityInStock: 100 },
-  { id: '4', name: 'Croissant', description: 'Flaky butter croissant', price: 3.00, category: 'Breakfast', imageUrl: 'https://picsum.photos/seed/croissant/200/150', quantityInStock: 40 },
-  { id: '5', name: 'Cheesecake', description: 'Creamy New York style cheesecake', price: 5.50, category: 'Dessert', imageUrl: 'https://picsum.photos/seed/cheesecake/200/150', quantityInStock: 20 },
-   { id: '6', name: 'Orange Juice', description: 'Freshly squeezed orange juice', price: 3.50, category: 'Beverage', imageUrl: 'https://picsum.photos/seed/juice/200/150', quantityInStock: 60 },
-];
 
 export default function MenuPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [filteredItems, setFilteredItems] = useState<MenuItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
   const [cart, setCart] = useState<CartItem[]>([]); // Simple cart state for demonstration
   const { toast } = useToast();
 
   useEffect(() => {
-    // TODO: Fetch menu items from backend/database
-    setMenuItems(initialMenuItems);
-    setFilteredItems(initialMenuItems);
-  }, []);
+    const fetchMenuItems = async () => {
+      setIsLoading(true);
+      try {
+        const menuCollection = collection(db, 'menuItems');
+        // Fetch only items that are available (e.g., quantity > 0)
+        // You might adjust this based on how you manage availability
+        const q = query(
+          menuCollection,
+          where('quantityInStock', '>', 0), // Example: Only show items in stock
+          orderBy('category'),
+          orderBy('name')
+        );
+        const querySnapshot = await getDocs(q);
+        const items: MenuItem[] = [];
+        querySnapshot.forEach((doc) => {
+          items.push({ id: doc.id, ...doc.data() } as MenuItem);
+        });
+        setMenuItems(items);
+        setFilteredItems(items);
+      } catch (error) {
+        console.error("Error fetching menu items:", error);
+        toast({
+          variant: "destructive",
+          title: "Error Loading Menu",
+          description: "Could not fetch menu items. Please try again later.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMenuItems();
+  }, [toast]);
 
   useEffect(() => {
     const lowerCaseSearch = searchTerm.toLowerCase();
@@ -57,15 +72,24 @@ export default function MenuPage() {
   }, [searchTerm, menuItems]);
 
   const handleAddToCart = (item: MenuItem) => {
+     if (item.quantityInStock <= 0) {
+       toast({ variant: "destructive", title: "Out of Stock", description: `${item.name} is currently unavailable.` });
+       return;
+     }
     setCart(prevCart => {
       const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
       if (existingItem) {
         // Increase quantity if item already in cart
-        return prevCart.map(cartItem =>
-          cartItem.id === item.id
-            ? { ...cartItem, orderQuantity: cartItem.orderQuantity + 1 }
-            : cartItem
-        );
+         if (existingItem.orderQuantity < item.quantityInStock) {
+            return prevCart.map(cartItem =>
+              cartItem.id === item.id
+                ? { ...cartItem, orderQuantity: cartItem.orderQuantity + 1 }
+                : cartItem
+            );
+         } else {
+            toast({ variant: "destructive", title: "Stock Limit Reached", description: `Cannot add more ${item.name}.` });
+            return prevCart; // Do not change cart if stock limit reached
+         }
       } else {
         // Add new item to cart
         return [...prevCart, { ...item, orderQuantity: 1 }];
@@ -76,10 +100,27 @@ export default function MenuPage() {
 
   const getCategories = () => {
      const categories = new Set(menuItems.map(item => item.category));
-     return Array.from(categories);
+     // Provide a default order or sort alphabetically
+     return Array.from(categories).sort();
   }
 
   const categories = getCategories();
+
+  const renderSkeletons = (count: number) => (
+    Array.from({ length: count }).map((_, index) => (
+        <Card key={`skeleton-${index}`} className="shadow-md flex flex-col">
+          <CardContent className="p-4 flex-grow">
+             <Skeleton className="h-5 w-3/4 mb-2" />
+             <Skeleton className="h-4 w-full mb-3" />
+             <Skeleton className="h-3 w-1/4" />
+          </CardContent>
+           <CardFooter className="p-4 flex justify-between items-center border-t mt-auto">
+              <Skeleton className="h-6 w-1/4" />
+              <Skeleton className="h-8 w-1/3" />
+           </CardFooter>
+        </Card>
+    ))
+  );
 
   return (
     <div className="container mx-auto py-8">
@@ -109,45 +150,76 @@ export default function MenuPage() {
          </Link>
       </div>
 
-      {categories.map(category => (
-        <div key={category} className="mb-8">
-          <h2 className="text-2xl font-semibold mb-4 border-b pb-2">{category}</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredItems.filter(item => item.category === category).map((item) => (
-              <Card key={item.id} className="shadow-md hover:shadow-lg transition-shadow duration-200 flex flex-col">
-                <CardHeader className="p-0">
-                  {item.imageUrl && (
-                    <div className="relative h-40 w-full">
-                      <Image src={item.imageUrl} alt={item.name} layout="fill" objectFit="cover" className="rounded-t-lg" />
-                    </div>
-                  )}
-                </CardHeader>
-                <CardContent className="p-4 flex-grow">
-                  <CardTitle className="text-lg mb-1">{item.name}</CardTitle>
-                  <CardDescription className="text-sm mb-2 flex-grow">{item.description}</CardDescription>
-                   <p className="text-xs text-muted-foreground">Stock: {item.quantityInStock > 0 ? item.quantityInStock : 'Out of Stock'}</p>
-                </CardContent>
-                <CardFooter className="p-4 flex justify-between items-center border-t mt-auto">
-                  <p className="text-lg font-semibold text-primary">${item.price.toFixed(2)}</p>
-                  <Button
-                     size="sm"
-                     className="bg-accent hover:bg-accent/90 text-accent-foreground"
-                     onClick={() => handleAddToCart(item)}
-                     disabled={item.quantityInStock <= 0}
-                   >
-                    <PlusCircle className="mr-1 h-4 w-4" /> Add
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
-             {filteredItems.filter(item => item.category === category).length === 0 && (
-                <p className="text-muted-foreground col-span-full text-center py-4">No items found in this category{searchTerm && ' for your search'}.</p>
-              )}
-          </div>
-        </div>
-      ))}
-       {filteredItems.length === 0 && searchTerm && (
-            <p className="text-muted-foreground text-center py-8">No menu items match your search criteria.</p>
+      {isLoading ? (
+         // Show Skeleton loaders while fetching data
+         <div className="space-y-8">
+             {['Loading Category...', 'Another Category...'].map(cat => (
+                 <div key={cat} className="mb-8">
+                     <h2 className="text-2xl font-semibold mb-4 border-b pb-2">
+                        <Skeleton className="h-6 w-1/4" />
+                     </h2>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                         {renderSkeletons(4)}
+                     </div>
+                 </div>
+             ))}
+         </div>
+      ) : menuItems.length === 0 ? (
+         <Card className="text-center py-12 shadow-md">
+           <CardHeader>
+             <CardTitle>Menu Unavailable</CardTitle>
+           </CardHeader>
+           <CardContent>
+             <PackageSearch className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
+             <CardDescription>The menu is currently empty or unavailable. Please check back later.</CardDescription>
+           </CardContent>
+         </Card>
+      ) : (
+        categories.map(category => {
+          const itemsInCategory = filteredItems.filter(item => item.category === category);
+          // Only render the category if there are items in it (after filtering)
+          if (itemsInCategory.length === 0 && searchTerm) return null; // Hide category if search yields no results in it
+
+          return (
+            <div key={category} className="mb-8">
+              <h2 className="text-2xl font-semibold mb-4 border-b pb-2">{category}</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {itemsInCategory.map((item) => (
+                  <Card key={item.id} className="shadow-md hover:shadow-lg transition-shadow duration-200 flex flex-col">
+                     {/* Removed Image section */}
+                    <CardContent className="p-4 flex-grow">
+                      <CardTitle className="text-lg mb-1">{item.name}</CardTitle>
+                      <CardDescription className="text-sm mb-2 flex-grow">{item.description}</CardDescription>
+                       <p className="text-xs text-muted-foreground">Stock: {item.quantityInStock > 0 ? item.quantityInStock : 'Out of Stock'}</p>
+                    </CardContent>
+                    <CardFooter className="p-4 flex justify-between items-center border-t mt-auto">
+                      <p className="text-lg font-semibold text-primary">${item.price.toFixed(2)}</p>
+                      <Button
+                         size="sm"
+                         className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                         onClick={() => handleAddToCart(item)}
+                         disabled={item.quantityInStock <= 0}
+                       >
+                        <PlusCircle className="mr-1 h-4 w-4" /> Add
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                ))}
+                 {itemsInCategory.length === 0 && !searchTerm && (
+                     // Show message if category is empty naturally (not due to search)
+                      <p className="text-muted-foreground col-span-full text-center py-4 italic">No items currently available in this category.</p>
+                 )}
+                 {itemsInCategory.length === 0 && searchTerm && (
+                     // Optional: Show message if search empty within this category
+                     <p className="text-muted-foreground col-span-full text-center py-4 italic">No '{category}' items match your search.</p>
+                 )}
+              </div>
+            </div>
+          );
+        })
+      )}
+       {filteredItems.length === 0 && searchTerm && !isLoading && menuItems.length > 0 && (
+            <p className="text-muted-foreground text-center py-8">No menu items match your search criteria across all categories.</p>
         )}
 
     </div>

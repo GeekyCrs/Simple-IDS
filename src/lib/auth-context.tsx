@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Route types
   const authPages = ['/login', '/signup', '/forgot-password'];
   const unauthorizedPage = '/unauthorized';
-  const publicPages = ['/unauthorized', '/privacy-policy', '/terms']; // Add any other public pages
+  const publicPages = ['/unauthorized', '/privacy-policy', '/terms'];
 
   // Route check helpers
   const isAuthPage = (path: string | null): boolean => {
@@ -66,13 +66,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isPublicPage = (path: string | null): boolean => {
     if (!path) return false;
-    // Exact match for public pages
     return publicPages.some(p => path === p);
   };
 
   const isProtectedRoute = (path: string | null): boolean => {
     if (!path) return false;
-    // Anything not an auth page or explicitly public is considered protected
     return !isAuthPage(path) && !isPublicPage(path);
   };
 
@@ -80,52 +78,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return path === unauthorizedPage;
   };
 
-  // Role-based route restrictions (using route group prefixes)
+  // Role-based route restrictions
   const roleRestrictedRoutes: Record<string, UserRole[]> = {
     '/manager': ['manager'],
     '/chef': ['chef', 'manager'],
-    // Add client-specific routes if any, e.g., '/client-only': ['client']
   };
 
   // Check if user has permission for the current route
   const hasPermissionForRoute = (userData: UserData | null, path: string | null): boolean => {
-    if (!userData || !path) return false; // No user or path, no permission
-
-     // Default allow if no specific restriction matches
-    let hasPermission = true;
-
-    for (const [routePrefix, allowedRoles] of Object.entries(roleRestrictedRoutes)) {
-      if (path.startsWith(routePrefix)) {
-        // If path starts with a restricted prefix, check roles
-        if (!allowedRoles.includes(userData.role)) {
-          hasPermission = false;
-          break; // Found a restriction, no need to check further
-        }
-        // If the user's role is allowed for this prefix, they have permission *for this level*
-        // Continue checking potentially more specific nested routes if needed (not currently implemented here)
+    if (!userData || !path) return false;
+    
+    // Check for exact matches first
+    for (const [route, roles] of Object.entries(roleRestrictedRoutes)) {
+      if (path.startsWith(route) && !roles.includes(userData.role)) {
+        return false;
       }
     }
-
-    // Special case: Non-clients should generally not access the base '/dashboard' etc. unless explicitly allowed elsewhere
-    const clientOnlyRoutes = ['/dashboard', '/menu', '/orders', '/order-history', '/my-bill'];
-    if (clientOnlyRoutes.some(route => path === route) && userData.role !== 'client') {
-      // Allow manager/chef to access specific client routes if needed by adding them above
-      // e.g., if manager should see the client menu: add '/menu': ['client', 'manager'] to roleRestrictedRoutes
-      // Otherwise, deny access to base client routes for non-clients
-       safeLog(`[AuthContext] Non-client (${userData.role}) trying to access client-only route: ${path}`);
-       // Uncomment the line below to enforce strict client-only access for these base routes
-       // hasPermission = false;
-    }
-
-
-    return hasPermission;
+    
+    return true;
   };
 
   // Authentication state listener
   useEffect(() => {
     // Skip during SSR
     if (typeof window === 'undefined') return;
-
+    
     safeLog("[AuthContext] Setting up auth state listener...");
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       safeLog("[AuthContext] Auth state changed. User:", firebaseUser?.uid || "null");
@@ -138,7 +115,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setLoading(true); // Set loading true while fetching Firestore data
       try {
         const userDocRef = doc(db, "users", firebaseUser.uid);
         const userDocSnap = await getDoc(userDocRef);
@@ -149,17 +125,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             id: firebaseUser.uid,
             name: userData.name || firebaseUser.displayName || 'User',
             email: firebaseUser.email,
-            role: (userData.role as UserRole) || 'client', // Default to client if role is missing/invalid
-            status: userData.status || 'active', // Default to active if status is missing
+            role: (userData.role as UserRole) || 'client',
+            status: userData.status || 'active',
             imageUrl: userData.imageUrl || undefined,
           };
-
-           // Validate role
-           const validRoles: UserRole[] = ['client', 'chef', 'manager'];
-           if (!validRoles.includes(enrichedUser.role)) {
-              safeWarn(`[AuthContext] Invalid role "${enrichedUser.role}" found for user ${firebaseUser.uid}. Defaulting to 'client'.`);
-              enrichedUser.role = 'client';
-           }
 
           if (enrichedUser.status === 'active') {
             safeLog("[AuthContext] Active user data fetched:", enrichedUser);
@@ -170,15 +139,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await auth.signOut();
           }
         } else {
-          safeWarn(`[AuthContext] User document not found for UID: ${firebaseUser.uid}. Treating as unauthenticated.`);
-           // If user exists in Auth but not Firestore, something is wrong. Log out.
+          safeWarn(`[AuthContext] User document not found for UID: ${firebaseUser.uid}. Signing out.`);
           setUser(null);
           await auth.signOut();
         }
       } catch (error) {
         safeError("[AuthContext] Error fetching user data:", error);
         setUser(null);
-        await auth.signOut(); // Log out on error fetching data
       } finally {
         setLoading(false);
         safeLog("[AuthContext] User data processed. Loading set to false.");
@@ -189,11 +156,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       safeLog("[AuthContext] Cleaning up auth state listener.");
       unsubscribe();
     };
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
   // Handle redirections based on auth state and path
   useEffect(() => {
-    // Skip during SSR or while loading initial auth state
+    // Skip during SSR or while loading
     if (typeof window === 'undefined' || loading) {
       safeLog(`[AuthContext] Skipping redirection check because loading is ${loading}.`);
       return;
@@ -201,56 +168,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     safeLog(`[AuthContext] Checking redirection. Path: ${pathname}, User: ${user?.id}, Loading: ${loading}`);
 
-    // Determine the correct dashboard path based on role
-     const getDashboardPath = (role: UserRole | undefined): string => {
-        switch (role) {
-          case 'manager': return '/manager/dashboard';
-          case 'chef': return '/chef/dashboard';
-          case 'client':
-          default: return '/dashboard'; // Default client dashboard
-        }
-     };
-
     // Case 1: Unauthenticated user trying to access protected routes
     if (!user && isProtectedRoute(pathname)) {
       safeLog(`[AuthContext] Redirecting unauthenticated user from ${pathname} to /login.`);
-      router.replace('/login'); // Use replace to avoid login page in history
+      router.push('/login');
       return;
     }
 
     // Case 2: Authenticated user trying to access auth pages
     if (user && isAuthPage(pathname)) {
-       const dashboardPath = getDashboardPath(user.role);
-       safeLog(`[AuthContext] Redirecting authenticated user from auth page ${pathname} to ${dashboardPath}.`);
-       router.replace(dashboardPath);
-       return;
+      let redirectPath = '/dashboard'; // Default client dashboard
+      if (user.role === 'chef') redirectPath = '/chef/dashboard';
+      if (user.role === 'manager') redirectPath = '/manager'; // Manager dashboard is at /manager
+      safeLog(`[AuthContext] Redirecting authenticated user from auth page ${pathname} to ${redirectPath}.`);
+      router.push(redirectPath);
+      return;
     }
 
     // Case 3: Authenticated user trying to access a route without permission
     if (user && isProtectedRoute(pathname) && !isUnauthorizedPage(pathname) && !hasPermissionForRoute(user, pathname)) {
       safeWarn(`[AuthContext] User ${user.id} (role: ${user.role}) lacks permission for ${pathname}. Redirecting to ${unauthorizedPage}.`);
-      router.replace(unauthorizedPage);
+      router.push(unauthorizedPage);
       return;
     }
 
-    // Case 4: Handle root path redirection (if middleware didn't catch it)
+    // Case 4: Handle root path redirection
     if (pathname === '/') {
-       if (user) {
-         const dashboardPath = getDashboardPath(user.role);
-         safeLog(`[AuthContext] Redirecting authenticated user from root / to ${dashboardPath}.`);
-         router.replace(dashboardPath);
-       } else {
-         safeLog(`[AuthContext] Redirecting unauthenticated user from root / to /login.`);
-         router.replace('/login');
-       }
-       return;
+      if (user) {
+        let redirectPath = '/dashboard';
+        if (user.role === 'chef') redirectPath = '/chef/dashboard';
+        if (user.role === 'manager') redirectPath = '/manager'; // Manager dashboard is at /manager
+        safeLog(`[AuthContext] Redirecting authenticated user from root / to ${redirectPath}.`);
+        router.push(redirectPath);
+      } else {
+        safeLog(`[AuthContext] Redirecting unauthenticated user from root / to /login.`);
+        router.push('/login');
+      }
+      return;
     }
 
-
     safeLog(`[AuthContext] No redirection needed for path: ${pathname}`);
-
-  }, [user, loading, pathname, router]); // Rerun whenever these dependencies change
-
+  }, [user, loading, pathname, router]);
 
   return (
     <AuthContext.Provider value={{ user, loading }}>
