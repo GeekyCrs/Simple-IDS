@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
 import { cn } from '@/lib/utils';
 import { auth } from '@/firebase/firebase-config'; // Import Firebase auth
 import { signOut } from 'firebase/auth'; // Import signOut
@@ -87,15 +88,16 @@ export default function AppSidebar() {
     try {
       await signOut(auth); // Use Firebase signOut
       // Clear the simulated cookie
-      document.cookie = 'auth-session=; path=/; max-age=0';
+      // document.cookie = 'auth-session=; path=/; max-age=0'; // Remove if not using separate cookie
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
-      router.push('/login'); // Redirect to login after successful logout
-      router.refresh(); // Force refresh to clear state
+       // Use window.location for a more reliable redirect after logout
+       window.location.href = '/login';
     } catch (error: any) {
        console.error("Logout Failed:", error);
        toast({ variant: "destructive", title: "Logout Failed", description: error.message || "Could not log out." });
     }
   };
+
 
   const getInitials = (name?: string) => {
     if (!name) return 'U';
@@ -103,31 +105,40 @@ export default function AppSidebar() {
   }
 
   const commonLinks = [
-    { href: '/app/dashboard', label: 'Dashboard', icon: Home },
-    { href: '/app/menu', label: 'Menu', icon: BookOpen },
-    { href: '/app/orders', label: 'Place Order', icon: UtensilsCrossed }, // Renamed for clarity
-    { href: '/app/order-history', label: 'Order History', icon: History },
-    { href: '/app/my-bill', label: 'My Bill', icon: FileText }, // Changed icon
+    { href: '/dashboard', label: 'Dashboard', icon: Home }, // Base path for client
+    { href: '/menu', label: 'Menu', icon: BookOpen },
+    { href: '/orders', label: 'Place Order', icon: UtensilsCrossed }, // Renamed for clarity
+    { href: '/order-history', label: 'Order History', icon: History },
+    { href: '/my-bill', label: 'My Bill', icon: FileText }, // Changed icon
   ];
 
   const chefLinks = [
-    { href: '/app/chef/dashboard', label: 'Chef Dashboard', icon: ChefHat },
-    { href: '/app/chef/manage-menu', label: 'Manage Menu', icon: BookOpen },
-    { href: '/app/chef/manage-stock', label: 'Manage Stock', icon: Package },
-    { href: '/app/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed },
+    { href: '/chef/dashboard', label: 'Chef Dashboard', icon: ChefHat },
+    { href: '/chef/manage-menu', label: 'Manage Menu', icon: BookOpen },
+    { href: '/chef/manage-stock', label: 'Manage Stock', icon: Package },
+    { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed },
   ];
 
   const managerLinks = [
-    { href: '/app/manager/dashboard', label: 'Manager Dash', icon: Settings },
-    { href: '/app/manager/manage-menu', label: 'Manage Menu', icon: BookOpen },
-    { href: '/app/manager/manage-stock', label: 'Manage Stock', icon: Package },
-    { href: '/app/manager/all-bills', label: 'All Bills', icon: FileText }, // Changed icon
-    { href: '/app/manager/manage-users', label: 'Manage Users', icon: UserCog }, // Changed icon
+    { href: '/manager/dashboard', label: 'Manager Dash', icon: Settings },
+    { href: '/manager/manage-menu', label: 'Manage Menu', icon: BookOpen },
+    { href: '/manager/manage-stock', label: 'Manage Stock', icon: Package },
+    { href: '/manager/all-bills', label: 'All Bills', icon: FileText }, // Changed icon
+    { href: '/manager/manage-users', label: 'Manage Users', icon: UserCog }, // Changed icon
   ];
 
+   // Prepend '/app' to all hrefs
+   const prefixLinks = (links: typeof commonLinks) => links.map(link => ({ ...link, href: `/app${link.href}` }));
+
+   const clientNavLinks = prefixLinks(commonLinks);
+   const chefNavLinks = prefixLinks(chefLinks);
+   const managerNavLinks = prefixLinks(managerLinks);
+
+
   // Determine links based on fetched role
-   const navLinks = role === 'chef' ? chefLinks : role === 'manager' ? managerLinks : commonLinks;
+   const navLinks = role === 'chef' ? chefNavLinks : role === 'manager' ? managerNavLinks : clientNavLinks;
    const baseHref = role === 'chef' ? '/app/chef' : role === 'manager' ? '/app/manager' : '/app';
+
 
   // While loading auth state, show skeleton or nothing
    if (loading) {
@@ -190,7 +201,7 @@ export default function AppSidebar() {
                    <TooltipTrigger asChild>
                      <Link href={link.href} passHref>
                        <SidebarMenuButton
-                         isActive={pathname === link.href || (pathname.startsWith(link.href) && link.href !== baseHref)}
+                         isActive={pathname === link.href || (pathname.startsWith(link.href) && link.href !== baseHref && link.href.length > baseHref.length + 1)}
                          className="justify-start"
                          aria-label={link.label}
                        >
@@ -252,3 +263,4 @@ export default function AppSidebar() {
     </TooltipProvider>
   );
 }
+
