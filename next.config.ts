@@ -18,29 +18,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  
-  // Add the rewrites to handle any URL path mismatches
-  async rewrites() {
-    return [
-      // Redirect legacy /app/... paths to the correct routes in route groups
-      {
-        source: '/app/manager/dashboard',
-        destination: '/manager',
-      },
-      {
-        source: '/app/manager/:path*',
-        destination: '/manager/:path*', 
-      },
-      {
-        source: '/app/chef/:path*',
-        destination: '/chef/:path*',
-      },
-      {
-        source: '/app/:path*',
-        destination: '/:path*',
-      }
-    ];
-  },
+  // Removed the rewrites function as it might conflict with App Router's handling of route groups and static assets.
 };
 
 export default nextConfig;
