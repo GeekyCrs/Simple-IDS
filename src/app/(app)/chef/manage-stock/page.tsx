@@ -14,6 +14,7 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, updateDoc, query, where, writeBatch } from 'firebase/firestore';
 import type { MenuItem } from '@/types/menu'; // Use MenuItem which includes quantityInStock
 import { Skeleton } from "@/components/ui/skeleton";
+import Link from 'next/link'; // Import Link component
 
 // Combine StockItem and MenuItem concept for simplicity here
 interface StockManagedItem extends Omit<MenuItem, 'description' | 'price'> {
