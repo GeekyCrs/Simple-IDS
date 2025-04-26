@@ -140,14 +140,15 @@ export default function AppSidebar() {
   return (
      <TooltipProvider> {/* Ensure TooltipProvider wraps the sidebar */}
        <Sidebar side="left" collapsible="icon" variant="sidebar" className="border-r">
-         <SidebarHeader className="p-2 items-center gap-2">
-           <div className={cn("flex items-center gap-2 transition-all", state === 'collapsed' && 'justify-center')}>
+         <SidebarHeader className="p-2 flex items-center gap-2"> {/* Changed to flex for control */}
+           <div className={cn("flex items-center gap-2 transition-all", state === 'collapsed' && 'justify-center flex-grow')}> {/* Title area */}
              <UtensilsCrossed className={cn("size-6 text-primary shrink-0", state === 'collapsed' && 'size-8')} />
-             <span className={cn("font-semibold text-lg transition-[opacity,margin] duration-200 ease-linear", state === 'collapsed' && 'opacity-0 ml-0')}>
+             <span className={cn("font-semibold text-lg transition-[opacity,margin] duration-200 ease-linear", state === 'collapsed' && 'opacity-0 ml-0 hidden')}> {/* Hide text when collapsed */}
                CanteenConnect
              </span>
            </div>
-           <div className={cn("ml-auto", state === 'collapsed' && 'hidden')}>
+           {/* Trigger Button: Always visible, positioned using flex properties */}
+           <div className={cn("shrink-0", state === 'collapsed' ? 'ml-auto' : '')}> {/* Position trigger */}
              <SidebarTrigger />
            </div>
          </SidebarHeader>

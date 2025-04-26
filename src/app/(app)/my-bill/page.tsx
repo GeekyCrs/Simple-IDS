@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -9,7 +8,7 @@ import { FileText, Calendar, PackageSearch } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from 'date-fns'; // For date formatting
 import { useAuth } from '@/lib/auth-context'; // Import useAuth to get current user
 import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, query, where, orderBy, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore'; // Firestore imports
+import { collection, query, where, orderBy, limit, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore'; // Added limit to imports
 import type { Order, OrderItemDetail } from '@/types/order'; // Re-evaluate if Order type is needed here, maybe Bill type?
 import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
 
@@ -185,6 +184,3 @@ export default function MyBillPage() {
     </div>
   );
 }
-
-
-    
