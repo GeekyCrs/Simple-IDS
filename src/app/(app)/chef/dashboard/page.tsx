@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { BellRing, UtensilsCrossed, Package, BookOpen, ChefHat } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge"; // Import Badge component
 
 export default function ChefDashboardPage() {
   const [mealName, setMealName] = useState('');
