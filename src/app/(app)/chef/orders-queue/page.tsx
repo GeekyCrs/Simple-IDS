@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -9,68 +10,12 @@ import { UtensilsCrossed, Clock, CheckCircle, CookingPot, XCircle, Bell, Package
 import { format, formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
+import { db } from '@/lib/firebase'; // Import Firestore instance
+import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; // Firestore imports
+import type { Order, OrderItemDetail } from '@/types/order'; // Import Order type
 
-
-// Re-use types from order history, add user info if needed
-interface OrderItemDetail {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-}
-
-interface Order {
-  id: string;
-  orderDate: string; // ISO String or Timestamp
-  userName: string; // Need user info for display
-  items: OrderItemDetail[];
-  total: number;
-  status: 'Pending' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled';
-  notes?: string;
-  preferredTime?: string;
-}
-
-// Placeholder Data - Replace with real-time data subscription (e.g., Firestore listener)
-const initialOrders: Order[] = [
-   {
-    id: 'order789',
-    orderDate: new Date(Date.now() - 60000 * 5).toISOString(), // 5 mins ago
-    userName: "Alice Smith",
-    items: [{ id: '5', name: 'Cheesecake', quantity: 1, price: 5.50 }],
-    total: 5.50,
-    status: 'Pending',
-    preferredTime: 'ASAP',
-  },
-  {
-    id: 'orderABC',
-    orderDate: new Date(Date.now() - 60000 * 15).toISOString(), // 15 mins ago
-    userName: "Bob Johnson",
-    items: [
-      { id: '1', name: 'Classic Burger', quantity: 1, price: 9.50 },
-      { id: 'item-coke', name: 'Coca-Cola Can', quantity: 1, price: 1.50 }, // Assuming price
-    ],
-    total: 11.00,
-    status: 'Pending',
-    notes: 'Well done patty',
-  },
-   {
-    id: 'orderDEF',
-    orderDate: new Date(Date.now() - 60000 * 30).toISOString(), // 30 mins ago
-    userName: "Charlie Brown",
-    items: [{ id: '2', name: 'Caesar Salad', quantity: 1, price: 7.00 }],
-    total: 7.00,
-    status: 'Preparing',
-     preferredTime: '12:30',
-  },
-   {
-    id: 'orderGHI',
-    orderDate: new Date(Date.now() - 60000 * 45).toISOString(), // 45 mins ago
-    userName: "Diana Prince",
-    items: [{ id: '3', name: 'Espresso', quantity: 2, price: 2.50 }],
-    total: 5.00,
-    status: 'Ready',
-  },
-];
+// Removed placeholder data
 
 const possibleStatuses: Order['status'][] = ['Pending', 'Preparing', 'Ready', 'Completed', 'Cancelled'];
 
@@ -81,53 +26,78 @@ export default function OrdersQueuePage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // TODO: Set up real-time listener for new/updated orders (e.g., Firebase onSnapshot)
     setIsLoading(true);
-    // Simulate fetching data
-    setTimeout(() => {
-      // Sort orders: Pending -> Preparing -> Ready -> Others (by date desc)
-       const sortedOrders = initialOrders.sort((a, b) => {
-          const statusOrder = { 'Pending': 1, 'Preparing': 2, 'Ready': 3, 'Completed': 4, 'Cancelled': 5 };
+    const ordersCollection = collection(db, 'orders');
+    // Query for active orders (not Completed or Cancelled) initially, sorted by status priority then date
+    const q = query(
+      ordersCollection,
+      where('status', 'in', ['Pending', 'Preparing', 'Ready']),
+      orderBy('status'), // Firestore doesn't perfectly sort by enum order, needs client-side sort too
+      orderBy('orderTimestamp', 'desc') // Or 'asc' depending on desired queue order
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const fetchedOrders: Order[] = [];
+      querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          // Convert Firestore Timestamp to Date string if needed, or handle Timestamp directly
+          const orderTimestamp = data.orderTimestamp instanceof Timestamp
+            ? data.orderTimestamp.toDate().toISOString()
+            : data.orderTimestamp || new Date().toISOString(); // Fallback
+
+          fetchedOrders.push({
+             id: doc.id,
+             ...data,
+             orderTimestamp: orderTimestamp, // Ensure it's a usable format
+          } as Order);
+      });
+
+       // Client-side sorting for precise status order
+       const sortedOrders = fetchedOrders.sort((a, b) => {
+          const statusOrder = { 'Pending': 1, 'Preparing': 2, 'Ready': 3 }; // Only sort active statuses here
           const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
           if (statusDiff !== 0) return statusDiff;
-          return new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime(); // Newest first within same status
+           // Use Timestamp for accurate date comparison if available, else fallback to ISO string
+           const dateA = a.orderTimestamp instanceof Timestamp ? a.orderTimestamp.toMillis() : new Date(a.orderTimestamp).getTime();
+           const dateB = b.orderTimestamp instanceof Timestamp ? b.orderTimestamp.toMillis() : new Date(b.orderTimestamp).getTime();
+           return dateB - dateA; // Newest first within same status
        });
-       setOrders(sortedOrders);
+
+      setOrders(sortedOrders);
       setIsLoading(false);
-    }, 1000);
+    }, (error) => {
+      console.error("Error fetching orders: ", error);
+      toast({ variant: "destructive", title: "Error", description: "Could not fetch orders." });
+      setIsLoading(false);
+    });
 
     // Cleanup listener on component unmount
-     return () => {
-       // unsubscribe(); // Firebase example
-     };
-  }, []);
+    return () => unsubscribe();
+  }, [toast]);
+
 
   const handleStatusUpdate = async (orderId: string, newStatus: Order['status']) => {
+     const orderToUpdate = orders.find(o => o.id === orderId);
+     if (!orderToUpdate) return;
+
     setIsUpdating(orderId);
     try {
-      // TODO: Update order status in the backend
-      console.log(`Updating order ${orderId} to ${newStatus}`);
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, { status: newStatus });
 
-      // Update local state optimistically or after confirmation
-      setOrders(prevOrders =>
-        prevOrders.map(order =>
-          order.id === orderId ? { ...order, status: newStatus } : order
-        ).sort((a, b) => { // Re-sort after update
-           const statusOrder = { 'Pending': 1, 'Preparing': 2, 'Ready': 3, 'Completed': 4, 'Cancelled': 5 };
-           const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
-           if (statusDiff !== 0) return statusDiff;
-           return new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime();
-        })
-      );
+      // Local state update is handled by the onSnapshot listener, but you might
+      // want an optimistic update here for better perceived performance.
+      // setOrders(prevOrders => ... ); // Optimistic update removed as listener handles it
 
       toast({ title: "Order Status Updated", description: `Order #${orderId.substring(orderId.length - 6)} is now ${newStatus}.` });
 
-       // TODO: Optionally send push notification to user when 'Ready' or 'Cancelled'
+       // TODO: Implement push notification logic if needed
+       // This usually requires a backend function triggered by the Firestore update.
+       // Example: Trigger a Cloud Function when status changes to 'Ready' or 'Cancelled'.
        // if (newStatus === 'Ready') {
-       //   sendPushNotification(order.userId, `Your order #${orderId.substring(orderId.length - 6)} is ready for pickup!`);
+       //   sendPushNotification(orderToUpdate.userId, `Your order #${orderId.substring(orderId.length - 6)} is ready for pickup!`);
        // } else if (newStatus === 'Cancelled') {
-       //   sendPushNotification(order.userId, `Your order #${orderId.substring(orderId.length - 6)} has been cancelled.`);
+       //   sendPushNotification(orderToUpdate.userId, `Your order #${orderId.substring(orderId.length - 6)} has been cancelled.`);
        // }
 
     } catch (error) {
@@ -144,11 +114,41 @@ export default function OrdersQueuePage() {
         case 'Pending': return <Clock className="text-yellow-500" />;
         case 'Preparing': return <CookingPot className="text-blue-500" />;
         case 'Ready': return <Bell className="text-green-500" />;
-        case 'Completed': return <CheckCircle className="text-gray-500" />;
-        case 'Cancelled': return <XCircle className="text-red-500" />;
-        default: return null;
+        case 'Completed': return <CheckCircle className="text-gray-500" />; // Should not appear in active queue
+        case 'Cancelled': return <XCircle className="text-red-500" />; // Should not appear in active queue
+        default: return <Clock className="text-yellow-500" />; // Default to pending icon
     }
  };
+
+  const renderSkeletons = (count: number) => (
+      Array.from({ length: count }).map((_, index) => (
+          <AccordionItem key={`skeleton-${index}`} value={`skeleton-${index}`} className="bg-card rounded-lg shadow-md border opacity-50">
+              <AccordionTrigger className="px-6 py-4 hover:no-underline">
+                 <div className="flex justify-between items-center w-full">
+                    <div className="flex items-center gap-3">
+                       <Skeleton className="h-5 w-16" />
+                       <Skeleton className="h-5 w-24" />
+                       <Skeleton className="h-5 w-5 rounded-full" />
+                       <Skeleton className="h-4 w-20" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                       <Skeleton className="h-6 w-16" />
+                        <Skeleton className="h-5 w-20" />
+                    </div>
+                 </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4 space-y-4">
+                  <Skeleton className="h-4 w-1/4" />
+                  <Skeleton className="h-4 w-3/4 mb-2" />
+                  <Skeleton className="h-4 w-3/4" />
+                   <div className="flex items-center gap-2 pt-4 border-t">
+                     <Skeleton className="h-5 w-24" />
+                      <Skeleton className="h-9 w-40" />
+                   </div>
+              </AccordionContent>
+            </AccordionItem>
+      ))
+   );
 
   return (
     <div className="container mx-auto py-8">
@@ -156,8 +156,10 @@ export default function OrdersQueuePage() {
       <p className="text-muted-foreground mb-6">Manage incoming orders and update their status.</p>
 
        {isLoading ? (
-         <div className="text-center py-12"><p className="text-muted-foreground">Loading orders...</p></div>
-       ) : orders.filter(o => o.status !== 'Completed' && o.status !== 'Cancelled').length === 0 ? (
+          <div className="space-y-4">
+            {renderSkeletons(3)}
+          </div>
+       ) : orders.length === 0 ? (
           <Card className="text-center py-12">
               <CardHeader>
                 <CardTitle>No Active Orders</CardTitle>
@@ -173,17 +175,17 @@ export default function OrdersQueuePage() {
               <AccordionItem key={order.id} value={order.id} className="bg-card rounded-lg shadow-md border">
                 <AccordionTrigger className="px-6 py-4 hover:no-underline">
                    <div className="flex justify-between items-center w-full">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap"> {/* Added flex-wrap */}
                          <span className="text-sm font-medium text-primary">#{order.id.substring(order.id.length - 6)}</span>
-                         <span className="font-semibold">{order.userName}</span>
+                          <span className="font-semibold">{order.userName || 'Unknown User'}</span>
                           {getStatusIcon(order.status)}
                          <span className="text-xs text-muted-foreground">
-                            ({formatDistanceToNow(new Date(order.orderDate), { addSuffix: true })})
+                           ({formatDistanceToNow(new Date(order.orderTimestamp), { addSuffix: true })})
                          </span>
                       </div>
                       <div className="flex items-center gap-3">
                          <span className="text-lg font-bold">${order.total.toFixed(2)}</span>
-                          <Badge variant={order.status === 'Cancelled' ? 'destructive' : order.status === 'Pending' ? 'outline' : 'secondary'} className="text-xs">
+                          <Badge variant={order.status === 'Cancelled' ? 'destructive' : order.status === 'Pending' ? 'outline' : order.status === 'Preparing' ? 'secondary' : 'default'} className="text-xs">
                                 {order.status}
                           </Badge>
                       </div>
@@ -194,7 +196,7 @@ export default function OrdersQueuePage() {
                     <h4 className="font-semibold mb-1">Items:</h4>
                     <ul className="list-disc list-inside text-sm space-y-1">
                       {order.items.map(item => (
-                        <li key={item.id}>{item.quantity}x {item.name} (${(item.price * item.quantity).toFixed(2)})</li>
+                        <li key={item.itemId}>{item.quantity}x {item.name} (${(item.price * item.quantity).toFixed(2)})</li>
                       ))}
                     </ul>
                   </div>
