@@ -16,7 +16,7 @@ const dailyMeal = {
   available: true, // Chef posts this
 };
 
-export default function DashboardPage() {
+export default function ClientDashboardPage() { // Renamed component
   const { toast } = useToast();
 
   const handleOrderDailyMeal = () => {
@@ -37,7 +37,7 @@ export default function DashboardPage() {
 
   return (
     <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-6">Your Dashboard</h1>
+      <h1 className="text-3xl font-bold mb-6">Client Dashboard</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Daily Meal Card */}
@@ -86,7 +86,7 @@ export default function DashboardPage() {
             <p className="text-muted-foreground text-center">Browse the menu to add items.</p>
           </CardContent>
           <CardFooter>
-            <Link href="/orders" passHref className="w-full">
+            <Link href="/app/orders" passHref className="w-full">
                <Button variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
                  Place Custom Order
                </Button>
@@ -107,7 +107,7 @@ export default function DashboardPage() {
              <p className="text-muted-foreground text-center">Explore all categories.</p>
            </CardContent>
            <CardFooter>
-            <Link href="/menu" passHref className="w-full">
+            <Link href="/app/menu" passHref className="w-full">
                <Button variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
                  Browse Menu
                </Button>

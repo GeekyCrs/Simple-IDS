@@ -2,10 +2,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// Placeholder: Replace with actual session/token check logic (e.g., using Firebase Auth server-side)
+// Placeholder: Replace with actual session/token check logic (e.g., using Firebase Admin SDK)
 async function isAuthenticated(request: NextRequest): Promise<{ authenticated: boolean; role: string | null }> {
   // Simulate checking for a session cookie or token
   const sessionToken = request.cookies.get('auth-session')?.value;
+  console.log(`[Middleware] Checking cookie 'auth-session': ${sessionToken}`);
 
   if (!sessionToken) {
     return { authenticated: false, role: null };
@@ -41,6 +42,7 @@ export async function middleware(request: NextRequest) {
 
   const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/forgot-password');
   const isApiRoute = pathname.startsWith('/api/'); // Exclude API routes explicitly if needed beyond matcher
+  const isAppRoute = pathname.startsWith('/app'); // Checks if it's any route under /app
 
   // Allow API routes to pass through without auth checks here if necessary
   if (isApiRoute) {
@@ -48,45 +50,44 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
   }
 
-  const isAppPage = !isAuthPage && pathname !== '/'; // Any page that isn't auth or root
-
   // If user is authenticated
   if (authInfo.authenticated) {
     console.log(`[Middleware] User is authenticated. Role: ${authInfo.role}`);
+
     // If trying to access auth pages while logged in, redirect to dashboard based on role
     if (isAuthPage) {
-       let redirectPath = '/dashboard';
-       if (authInfo.role === 'chef') redirectPath = '/chef/dashboard';
-       if (authInfo.role === 'manager') redirectPath = '/manager/dashboard';
+       let redirectPath = '/app/dashboard'; // Client dashboard
+       if (authInfo.role === 'chef') redirectPath = '/app/chef/dashboard';
+       if (authInfo.role === 'manager') redirectPath = '/app/manager/dashboard';
        console.log(`[Middleware] Authenticated user on auth page, redirecting to ${redirectPath}`);
        return NextResponse.redirect(new URL(redirectPath, request.url));
     }
 
-    // Role-based access control for specific sections
-    if (pathname.startsWith('/chef') && authInfo.role !== 'chef') {
-      // Allow manager to access chef pages (or redirect based on your rules)
+    // Role-based access control for specific sections within /app
+    if (pathname.startsWith('/app/chef') && authInfo.role !== 'chef') {
+      // Allow manager to access chef pages
       if (authInfo.role === 'manager') {
          console.log(`[Middleware] Manager accessing chef path: ${pathname}`);
          return NextResponse.next(); // Manager can access chef pages
       }
-      console.warn(`[Middleware] Access denied for ${authInfo.role} to chef path: ${pathname}. Redirecting to /dashboard.`);
-      return NextResponse.redirect(new URL('/dashboard', request.url)); // Redirect non-chefs away
+      console.warn(`[Middleware] Access denied for ${authInfo.role} to chef path: ${pathname}. Redirecting to /app/dashboard.`);
+      return NextResponse.redirect(new URL('/app/dashboard', request.url)); // Redirect non-chefs/managers away
     }
-    if (pathname.startsWith('/manager') && authInfo.role !== 'manager') {
-      console.warn(`[Middleware] Access denied for ${authInfo.role} to manager path: ${pathname}. Redirecting to /dashboard.`);
-      return NextResponse.redirect(new URL('/dashboard', request.url)); // Redirect non-managers away
+    if (pathname.startsWith('/app/manager') && authInfo.role !== 'manager') {
+      console.warn(`[Middleware] Access denied for ${authInfo.role} to manager path: ${pathname}. Redirecting to /app/dashboard.`);
+      return NextResponse.redirect(new URL('/app/dashboard', request.url)); // Redirect non-managers away
     }
 
-     // If accessing root path while logged in, redirect to appropriate dashboard
+     // If accessing root path '/' while logged in, redirect to appropriate dashboard
      if (pathname === '/') {
-        let redirectPath = '/dashboard';
-        if (authInfo.role === 'chef') redirectPath = '/chef/dashboard';
-        if (authInfo.role === 'manager') redirectPath = '/manager/dashboard';
+        let redirectPath = '/app/dashboard';
+        if (authInfo.role === 'chef') redirectPath = '/app/chef/dashboard';
+        if (authInfo.role === 'manager') redirectPath = '/app/manager/dashboard';
         console.log(`[Middleware] Authenticated user on root path, redirecting to ${redirectPath}`);
         return NextResponse.redirect(new URL(redirectPath, request.url));
      }
 
-    // Allow access to other app pages if authenticated and role matches (or is client)
+    // Allow access to other app pages if authenticated and role conditions met
     console.log(`[Middleware] Allowing authenticated user access to: ${pathname}`);
     return NextResponse.next();
   }
@@ -94,24 +95,28 @@ export async function middleware(request: NextRequest) {
   // If user is not authenticated
   if (!authInfo.authenticated) {
     console.log(`[Middleware] User is not authenticated.`);
-    // Allow access only to auth pages and potentially the root (before redirect)
-    if (isAppPage) {
+
+    // If trying to access any /app route while not logged in, redirect to login
+    if (isAppRoute) {
       console.log(`[Middleware] Unauthenticated access attempt to app page: ${pathname}. Redirecting to /login.`);
-       // Store intended URL to redirect after login? (Optional)
-       // const redirectUrl = request.nextUrl.clone();
-       // redirectUrl.pathname = '/login';
-       // redirectUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(new URL('/login', request.url));
     }
-     // If accessing root path while not logged in, redirect to login
+
+     // If accessing root path '/' while not logged in, redirect to login
      if (pathname === '/') {
          console.log(`[Middleware] Unauthenticated user on root path, redirecting to /login.`);
          return NextResponse.redirect(new URL('/login', request.url));
      }
   }
 
-  // Allow access to auth pages if not authenticated
-  console.log(`[Middleware] Allowing unauthenticated access to auth page: ${pathname}`);
+  // Allow access to auth pages (/login, /signup, /forgot-password) if not authenticated
+  if (!authInfo.authenticated && isAuthPage) {
+    console.log(`[Middleware] Allowing unauthenticated access to auth page: ${pathname}`);
+    return NextResponse.next();
+  }
+
+  // Fallback just in case (should ideally not be reached with current logic)
+  console.log(`[Middleware] Fallback: Allowing access to ${pathname}`);
   return NextResponse.next();
 }
 
@@ -120,12 +125,14 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - api (API routes) - Although API routes should ideally handle their own auth
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - api (API routes) - handled inside middleware logic now
      * - any other static assets (e.g., /images/, /fonts/)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|images|fonts).*)',
+    '/((?!_next/static|_next/image|favicon.ico|images|fonts|api/).*)',
+     // Include the root path explicitly if not caught by the above
+    '/'
   ],
 };

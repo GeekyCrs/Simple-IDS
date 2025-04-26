@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -59,19 +60,35 @@ export default function LoginPage() {
         // Optionally create the user doc here if it should always exist
       }
 
+      // --- Simulation for Middleware ---
+      // In a real app, the server would set a secure HTTP-only cookie after verifying the ID token.
+      // This simulation sets a client-side cookie that the current middleware expects.
+      // ** THIS IS INSECURE FOR PRODUCTION **
+      let simulatedToken = 'client-token';
+      if (userRole === 'chef') simulatedToken = 'chef-token';
+      if (userRole === 'manager') simulatedToken = 'manager-token';
+      document.cookie = `auth-session=${simulatedToken}; path=/; max-age=3600`; // Expires in 1 hour
+      console.log(`[Login Page] Simulated setting auth-session cookie with token: ${simulatedToken}`);
+      // --- End Simulation ---
+
       toast({
         title: "Login Successful",
         description: "Welcome back!"
       });
 
       // Redirect based on fetched role
+      let redirectPath = '/app/dashboard'; // Default client dashboard
       if (userRole === 'chef') {
-        router.push('/chef/dashboard');
+        redirectPath = '/app/chef/dashboard';
       } else if (userRole === 'manager') {
-        router.push('/manager/dashboard');
-      } else {
-        router.push('/dashboard');
+        redirectPath = '/app/manager/dashboard';
       }
+
+      console.log(`Redirecting to: ${redirectPath}`);
+      router.push(redirectPath);
+      // Refresh the page to ensure middleware picks up the cookie and re-evaluates
+      router.refresh();
+
 
     } catch (error: any) {
       console.error('Login error:', error);
@@ -82,6 +99,8 @@ export default function LoginPage() {
         title: "Login Failed",
         description: errorMessage
       });
+      // Clear simulated cookie on failure
+      document.cookie = 'auth-session=; path=/; max-age=0';
     } finally {
       setIsLoading(false);
     }
