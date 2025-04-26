@@ -3,14 +3,11 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, FileText, Package, BookOpen, UtensilsCrossed, Settings, AreaChart, DollarSign } from "lucide-react";
+import { Users, FileText, Package, BookOpen, UtensilsCrossed, Settings, DollarSign } from "lucide-react";
 import Link from "next/link";
-// Assuming a charting library like Recharts is available via shadcn/ui/chart
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip as ChartTooltip } from "recharts";
-import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 
-
-// Placeholder data - replace with actual data fetched from backend
+// Placeholder data
 const stats = {
   totalUsers: 125,
   pendingBills: 15,
@@ -28,13 +25,38 @@ const monthlySalesData = [
   { month: "Jun", sales: 1850 },
 ];
 
-const chartConfig = {
-  sales: {
-    label: "Sales ($)",
-    color: "hsl(var(--primary))", // Use primary color (green)
-  },
-} satisfies import("@/components/ui/chart").ChartConfig;
+// Simple chart container component
+function ChartContainer({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`w-full ${className}`} style={{ '--color-sales': 'hsl(var(--primary))' } as React.CSSProperties}>
+      {children}
+    </div>
+  );
+}
 
+// Custom tooltip component
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
+  if (!active || !payload || !payload.length) return null;
+
+  return (
+    <div className="rounded-lg border bg-background p-2 shadow-md">
+      {payload.map((entry, index) => (
+        <div key={`tooltip-${index}`} className="flex items-center gap-2">
+          <div className="h-3 w-3 rounded-full bg-primary" />
+          <span className="font-medium">
+            {entry.name}: ${entry.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function ManagerDashboardPage() {
   const [dashboardStats, setDashboardStats] = useState(stats);
@@ -42,10 +64,10 @@ export default function ManagerDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // TODO: Fetch actual dashboard data from backend
+    // Fetch data from API
     setIsLoading(true);
+    // Simulate API call
     setTimeout(() => {
-      // Simulate fetching data
       setDashboardStats(stats);
       setSalesData(monthlySalesData);
       setIsLoading(false);
@@ -133,7 +155,6 @@ export default function ManagerDashboardPage() {
                    <Package /> Manage Stock
                 </Button>
              </Link>
-             {/* Maybe add link to Chef's order queue view? */}
              <Link href="/chef/orders-queue" passHref>
                 <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground hover:bg-secondary">
                    <UtensilsCrossed /> View Orders Queue
@@ -149,15 +170,15 @@ export default function ManagerDashboardPage() {
              <CardDescription>Total sales revenue per month.</CardDescription>
            </CardHeader>
            <CardContent>
-             <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                 <ResponsiveContainer width="100%" height="100%">
-                     <BarChart data={salesData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                         <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} />
-                         <YAxis tickLine={false} axisLine={false} tickMargin={10} fontSize={12} tickFormatter={(value) => `$${value}`} />
-                         <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
-                         <Bar dataKey="sales" fill="var(--color-sales)" radius={4} />
-                     </BarChart>
-                 </ResponsiveContainer>
+             <ChartContainer className="h-[300px]">
+               <ResponsiveContainer width="100%" height="100%">
+                 <BarChart data={salesData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                   <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} />
+                   <YAxis tickLine={false} axisLine={false} tickMargin={10} fontSize={12} tickFormatter={(value) => `$${value}`} />
+                   <Tooltip content={<CustomTooltip />} cursor={false} />
+                   <Bar dataKey="sales" fill="var(--color-sales)" radius={4} />
+                 </BarChart>
+               </ResponsiveContainer>
              </ChartContainer>
            </CardContent>
          </Card>

@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, UtensilsCrossed, BookOpen, History, Settings, LogOut, Users, Package, ChefHat, FileText, UserCog } from 'lucide-react';
+import { Home, UtensilsCrossed, BookOpen, History, Settings, LogOut, Users, Package, ChefHat, FileText, UserCog, LayoutDashboard } from 'lucide-react'; // Added LayoutDashboard
 import {
   Sidebar,
   SidebarContent,
@@ -37,7 +37,7 @@ export default function AppSidebar() {
     try {
       await signOut(auth); // Use Firebase signOut
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
-      // Use window.location for a more reliable redirect after logout to clear context
+      // Use window.location for a more reliable redirect after logout to clear context/cache
       window.location.href = '/login';
     } catch (error: any) {
        console.error("Logout Failed:", error);
@@ -50,8 +50,9 @@ export default function AppSidebar() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   }
 
+  // Define links relative to the root (correct for App Router groups)
   const commonLinks = [
-    { href: '/dashboard', label: 'Dashboard', icon: Home },
+    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }, // Changed icon
     { href: '/menu', label: 'Menu', icon: BookOpen },
     { href: '/orders', label: 'Place Order', icon: UtensilsCrossed },
     { href: '/order-history', label: 'Order History', icon: History },
@@ -74,20 +75,17 @@ export default function AppSidebar() {
     { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed }, // Manager can also view queue
   ];
 
-   // Prepend '/app' to all hrefs
-   const prefixLinks = (links: typeof commonLinks) => links.map(link => ({ ...link, href: `/app${link.href}` }));
-
-   const clientNavLinks = prefixLinks(commonLinks);
-   const chefNavLinks = prefixLinks(chefLinks);
-   const managerNavLinks = prefixLinks(managerLinks);
+  // No need to prefix links with '/app' anymore as route groups handle this
 
   // Determine links based on fetched role
-   const role = user?.role || 'client'; // Get role from context
-   const navLinks = role === 'chef' ? chefNavLinks : role === 'manager' ? managerNavLinks : clientNavLinks;
-   const baseHref = role === 'chef' ? '/app/chef' : role === 'manager' ? '/app/manager' : '/app';
+  const role = user?.role || 'client'; // Get role from context
+  const navLinks = role === 'chef' ? chefLinks : role === 'manager' ? managerLinks : commonLinks;
+  // Define base path for active link highlighting (used to avoid highlighting parent when child is active)
+  const baseHref = role === 'chef' ? '/chef' : role === 'manager' ? '/manager' : '';
+
 
   // While loading auth state, show skeleton
-   if (loading) {
+  if (loading) {
        return (
          <Sidebar side="left" collapsible="icon" variant="sidebar" className="border-r">
             <SidebarHeader className="p-2 items-center gap-2">
@@ -125,8 +123,14 @@ export default function AppSidebar() {
    const userData = {
      name: user.name,
      email: user.email,
-     // imageUrl: user.imageUrl // Assuming imageUrl is added to UserData in AuthContext
+     imageUrl: user.imageUrl
    };
+
+   // Determine if a link is active
+   const isActiveLink = (href: string) => {
+     // Exact match or prefix match (but not for the base href itself)
+     return pathname === href || (pathname.startsWith(href) && href.length > (baseHref || '').length + 1 && href !== baseHref );
+   }
 
   return (
      <TooltipProvider> {/* Ensure TooltipProvider wraps the sidebar */}
@@ -153,7 +157,7 @@ export default function AppSidebar() {
                    <TooltipTrigger asChild>
                      <Link href={link.href} passHref>
                        <SidebarMenuButton
-                         isActive={pathname === link.href || (pathname.startsWith(link.href) && link.href !== baseHref && link.href.length > (baseHref || '').length + 1)}
+                         isActive={isActiveLink(link.href)}
                          className="justify-start"
                          aria-label={link.label}
                        >
@@ -178,7 +182,7 @@ export default function AppSidebar() {
          <SidebarFooter className="p-2">
            <div className={cn("flex items-center gap-3 transition-all duration-200", state === 'collapsed' && 'justify-center')}>
              <Avatar className="size-8">
-               {/* <AvatarImage src={userData.imageUrl} alt={userData.name || 'User'} /> */}
+                <AvatarImage src={userData.imageUrl} alt={userData.name || 'User'} />
                <AvatarFallback>{getInitials(userData.name)}</AvatarFallback>
              </Avatar>
              <div className={cn("flex flex-col text-xs transition-[opacity,margin] duration-200 ease-linear", state === 'collapsed' ? 'opacity-0 ml-0' : 'opacity-100 ml-0')}>

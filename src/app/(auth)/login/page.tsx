@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase'; // Correct import path
 import { signInWithEmailAndPassword, AuthError } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import { useAuth } from '@/lib/auth-context'; // Import useAuth to potentially update context
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -19,6 +20,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
+  // const { setUser } = useAuth(); // Potentially use if you need to manually trigger context update
 
   // Function to map Firebase error codes to user-friendly messages
   const getFirebaseAuthErrorMessage = (errorCode: string): string => {
@@ -45,19 +47,53 @@ export default function LoginPage() {
     try {
       // Sign in with Firebase Authentication
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      console.log('User logged in successfully:', user.uid);
+      const firebaseUser = userCredential.user;
+      console.log('User logged in successfully:', firebaseUser.uid);
 
-      // Fetch user role from Firestore
-      const userDocRef = doc(db, "users", user.uid);
+      // Fetch user role and data from Firestore
+      const userDocRef = doc(db, "users", firebaseUser.uid);
       const userDocSnap = await getDoc(userDocRef);
 
       let userRole = 'client'; // Default role
+      let userData = null; // Placeholder for user data
+
       if (userDocSnap.exists()) {
-        userRole = userDocSnap.data()?.role || 'client';
+        const firestoreData = userDocSnap.data();
+        userRole = firestoreData?.role || 'client';
+        // Construct the UserData object matching AuthContext
+        userData = {
+          id: firebaseUser.uid,
+          name: firestoreData.name || firebaseUser.displayName || 'User',
+          email: firebaseUser.email,
+          role: userRole as 'client' | 'chef' | 'manager',
+          status: firestoreData.status || 'active',
+          imageUrl: firestoreData.imageUrl || undefined,
+        };
+        console.log("Fetched user data:", userData);
+
+        // Check if user is active
+        if (userData.status !== 'active') {
+          toast({
+            variant: "destructive",
+            title: "Account Disabled",
+            description: "Your account is inactive. Please contact support.",
+          });
+          await auth.signOut(); // Sign out inactive user
+          setIsLoading(false);
+          return;
+        }
+
       } else {
-        console.warn(`No user document found for UID: ${user.uid}. Defaulting to 'client' role.`);
+        console.warn(`No user document found for UID: ${firebaseUser.uid}. Defaulting to 'client' role.`);
         // Optionally create the user doc here if it should always exist
+        // For now, assume default client role if doc missing, but show warning
+         userData = {
+          id: firebaseUser.uid,
+          name: firebaseUser.displayName || 'User',
+          email: firebaseUser.email,
+          role: 'client',
+          status: 'active', // Assume active if doc missing, might need adjustment
+        };
       }
 
       toast({
@@ -65,14 +101,19 @@ export default function LoginPage() {
         description: "Welcome back!"
       });
 
-      // Redirect based on fetched role using router.push
+      // --- Redirection Logic ---
+      // Redirect based on fetched role. Use correct paths based on route groups.
+      let redirectPath = '/dashboard'; // Default for client
       if (userRole === 'chef') {
-        router.push('/app/chef/dashboard');
+        redirectPath = '/chef/dashboard'; // Matches src/app/(app)/chef/dashboard
       } else if (userRole === 'manager') {
-        router.push('/app/manager/dashboard');
-      } else {
-        router.push('/app/dashboard');
+        redirectPath = '/manager/dashboard'; // Matches src/app/(app)/manager/dashboard
       }
+
+      console.log(`Redirecting to: ${redirectPath}`);
+      // Use router.replace for better history management on login/logout flows
+      router.replace(redirectPath);
+
 
     } catch (error: any) {
       console.error('Login error:', error);
@@ -83,14 +124,15 @@ export default function LoginPage() {
         title: "Login Failed",
         description: errorMessage
       });
-    } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Ensure loading is stopped on error
     }
+    // Don't set isLoading to false here if redirecting, let the navigation handle it.
+    // setIsLoading(false);
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
-        <Card className="w-full max-w-md shadow-lg">
+    <div className="flex items-center justify-center min-h-screen bg-background"> {/* Updated background */}
+        <Card className="w-full max-w-md shadow-lg border rounded-lg"> {/* Added border and rounded */}
           <CardHeader className="space-y-1 text-center">
             <CardTitle className="text-2xl font-bold">Login</CardTitle>
             <CardDescription>Enter your email and password to access your account</CardDescription>
@@ -108,15 +150,16 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isLoading}
+                  className="text-base md:text-sm" // Consistent input text size
                 />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Password</Label>
                   <Link href="/forgot-password" passHref>
-                    <span className="text-sm text-accent hover:underline cursor-pointer">
+                    <Button variant="link" className="text-sm h-auto p-0 text-accent hover:underline"> {/* Use Button for link styling */}
                       Forgot password?
-                    </span>
+                    </Button>
                   </Link>
                 </div>
                 <Input
@@ -127,6 +170,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isLoading}
+                   className="text-base md:text-sm" // Consistent input text size
                 />
               </div>
               <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
@@ -138,9 +182,9 @@ export default function LoginPage() {
             <div className="text-center text-muted-foreground">
               Don't have an account?{' '}
               <Link href="/signup" passHref>
-                <span className="font-medium text-accent hover:underline cursor-pointer">
-                  Sign up
-                </span>
+                 <Button variant="link" className="text-sm h-auto p-0 font-medium text-accent hover:underline"> {/* Use Button for link styling */}
+                   Sign up
+                 </Button>
               </Link>
             </div>
           </CardFooter>

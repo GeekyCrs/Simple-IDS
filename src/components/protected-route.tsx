@@ -1,47 +1,57 @@
-
 "use client";
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
-interface ProtectedRouteProps {
+export interface ProtectedRouteProps {
   children: React.ReactNode;
-  // requiredRoles prop is removed as role checks are handled in AuthContext
+  requiredRoles?: string[];
 }
 
-export default function ProtectedRoute({ children }: ProtectedRouteProps) {
+export default function ProtectedRoute({ 
+  children,
+  requiredRoles = []
+}: ProtectedRouteProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    // If loading is finished and there's no user, redirect to login
-    // This acts as a client-side safeguard, though AuthContext also handles this.
-    if (!loading && !user) {
-      console.log("[ProtectedRoute] No user found after loading, redirecting to /login.");
-      router.push("/login");
-    }
-    // Role checks are removed from here, handled by AuthContext useEffect
-  }, [user, loading, router]);
+    // Only run checks when auth state is determined
+    if (!loading) {
+      // If user is not authenticated, redirect to login
+      if (!user) {
+        router.push("/login");
+        return;
+      }
 
-  // Show loading indicator while checking auth state
+      // If specific roles are required and user doesn't have any of them
+      if (requiredRoles.length > 0 && !requiredRoles.includes(user.role)) {
+        router.push("/unauthorized");
+        return;
+      }
+    }
+  }, [user, loading, router, requiredRoles]);
+
+  // Show loading state while determining authentication
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          {/* You can use a more sophisticated spinner/loader component */}
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-lg text-muted-foreground">Loading...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
       </div>
     );
   }
 
-  // If there's a user, render the children
-  if (user) {
-    return <>{children}</>;
+  // Don't render children until verification completes
+  if (!user) {
+    return null;
   }
 
-  // If no user and not loading (implies redirection is likely happening), render null
-  return null;
+  // Check role-based access if roles are specified
+  if (requiredRoles.length > 0 && !requiredRoles.includes(user.role)) {
+    return null; // Don't render while redirecting to unauthorized
+  }
+
+  // User is authenticated and authorized, render children
+  return <>{children}</>;
 }

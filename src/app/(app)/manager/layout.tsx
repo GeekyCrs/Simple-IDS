@@ -28,6 +28,7 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
   const { user } = useAuth();
   const { toast } = useToast();
 
+  // Navigation items - ensure paths match your route structure
   const navigation = [
     { name: "Dashboard", href: "/manager", icon: BarChart3 },
     { name: "Manage Users", href: "/manager/manage-users", icon: Users },
@@ -70,7 +71,7 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
           <div className="ml-4 font-semibold">Manager Dashboard</div>
         </div>
 
-        {/* Mobile sidebar */}
+        {/* Mobile sidebar overlay */}
         <div
           className={`fixed inset-0 z-30 bg-black/30 lg:hidden ${
             sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0"
