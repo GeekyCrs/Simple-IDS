@@ -9,99 +9,85 @@ import { FileText, Calendar, PackageSearch } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from 'date-fns'; // For date formatting
 import { useAuth } from '@/lib/auth-context'; // Import useAuth to get current user
 import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore'; // Firestore imports
-import type { Order, OrderItemDetail } from '@/types/order'; // Import Order type
+import { collection, query, where, orderBy, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore'; // Firestore imports
+import type { Order, OrderItemDetail } from '@/types/order'; // Re-evaluate if Order type is needed here, maybe Bill type?
 import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
 
-// Define Bill Item structure derived from orders
-interface BillItem {
-  id: string; // Use order ID or a unique ID
-  date: string; // ISO String or Timestamp
-  description: string; // e.g., "Order #...", "Item Name"
-  amount: number;
-}
+// Define Bill Item structure (if needed, or just show total)
+// interface BillItem {
+//   id: string; // Use order ID or a unique ID
+//   date: string; // ISO String or Timestamp
+//   description: string; // e.g., "Order #...", "Item Name"
+//   amount: number;
+// }
 
+// Updated Bill type to match Firestore 'bills' collection
 interface Bill {
-  month: string; // e.g., "July 2024"
-  items: BillItem[];
+  id: string; // Firestore document ID for the bill
+  month: string; // Display month e.g., "July 2024"
+  yearMonth: string; // e.g., "2024-07" used as ID or key field
   total: number;
-  // Bill status might be fetched from a separate 'bills' collection or determined dynamically
-  status: 'Unpaid' | 'Paid' | 'Pending'; // Placeholder status
+  status: 'Unpaid' | 'Paid' | 'Pending';
+  dueDate?: Timestamp | null;
+  // items?: BillItem[]; // Optional: If bill documents store item details
 }
 
 export default function MyBillPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [bill, setBill] = useState<Bill | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const currentMonth = format(new Date(), 'MMMM yyyy');
-  const currentMonthStart = startOfMonth(new Date());
-  const currentMonthEnd = endOfMonth(new Date());
+  const currentDisplayMonth = format(new Date(), 'MMMM yyyy');
+  const currentYearMonth = format(new Date(), 'yyyy-MM'); // Format for ID/Query
 
   useEffect(() => {
+    if (authLoading) {
+        setIsLoading(true); // Keep loading while auth state is resolving
+        return;
+    }
     if (!user) {
-      setIsLoading(false); // If no user, stop loading
+      setIsLoading(false); // If no user after auth check, stop loading
+      setBill(null); // Clear any previous bill state
       return;
     }
 
     const fetchUserBill = async () => {
       setIsLoading(true);
       try {
-        const ordersCollection = collection(db, 'orders');
+        // Construct the potential bill document ID (e.g., userId_yyyy-MM)
+        // Or query the 'bills' collection
+        // Option 1: Query by userId and yearMonth
+        const billsCollection = collection(db, 'bills');
         const q = query(
-          ordersCollection,
-          where('userId', '==', user.id),
-          // Use Firestore Timestamp for filtering
-          where('orderTimestamp', '>=', Timestamp.fromDate(currentMonthStart)),
-          where('orderTimestamp', '<=', Timestamp.fromDate(currentMonthEnd)),
-          // Fetch only completed or relevant orders for billing? Adjust as needed.
-          where('status', 'in', ['Preparing', 'Ready', 'Completed']), // Example: Include orders being prepared or ready
-          orderBy('orderTimestamp', 'desc')
+            billsCollection,
+            where('userId', '==', user.id),
+            where('yearMonth', '==', currentYearMonth),
+            orderBy('createdAt', 'desc'), // Get the latest bill if multiple exist (shouldn't happen ideally)
+            limit(1) // Expect only one bill per user per month
         );
-
         const querySnapshot = await getDocs(q);
-        const billItems: BillItem[] = [];
-        let totalAmount = 0;
 
-        querySnapshot.forEach((doc) => {
-            const orderData = doc.data() as Order;
-            const orderDate = orderData.orderTimestamp instanceof Timestamp
-                ? orderData.orderTimestamp.toDate().toISOString()
-                : orderData.orderTimestamp;
 
-            // Add each item from the order as a bill item (or the whole order total)
-            // Option 1: Add each item individually
-            orderData.items.forEach((item, index) => {
-                billItems.push({
-                    id: `${doc.id}-${index}`, // Create unique ID for bill item
-                    date: orderDate,
-                    description: `${item.quantity}x ${item.name}`,
-                    amount: item.price * item.quantity,
-                });
+        if (!querySnapshot.empty) {
+            const billDoc = querySnapshot.docs[0];
+            const billData = billDoc.data();
+            setBill({
+                id: billDoc.id,
+                month: billData.month || currentDisplayMonth, // Use stored month or format current
+                yearMonth: billData.yearMonth,
+                total: billData.total || 0,
+                status: (billData.status as Bill['status']) || 'Pending',
+                dueDate: billData.dueDate || null,
+                // items: billData.items || [], // If items are stored
             });
-            // Option 2: Add order total as one item (Simpler)
-            // billItems.push({
-            //     id: doc.id,
-            //     date: orderDate,
-            //     description: `Order #${doc.id.substring(doc.id.length - 6)}`,
-            //     amount: orderData.total,
-            // });
-
-            totalAmount += orderData.total;
-        });
-
-        // Sort bill items by date if needed (already sorted by query usually)
-        billItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-        setBill({
-          month: currentMonth,
-          items: billItems,
-          total: totalAmount,
-          // Fetch actual status from a 'bills' collection if you have one
-          status: totalAmount > 0 ? 'Unpaid' : 'Paid', // Simple logic, replace with actual status check
-        });
+        } else {
+            // No bill document found for this user and month
+            console.log(`No bill found for user ${user.id} for month ${currentYearMonth}`);
+            setBill(null); // Set bill to null if none found
+        }
 
       } catch (error) {
         console.error("Error fetching user bill:", error);
+        setBill(null); // Clear bill on error
         // Handle error, maybe show toast
       } finally {
         setIsLoading(false);
@@ -109,9 +95,10 @@ export default function MyBillPage() {
     };
 
     fetchUserBill();
-  }, [user, currentMonth, currentMonthStart, currentMonthEnd]); // Rerun if user or month changes
+  }, [user, authLoading, currentYearMonth, currentDisplayMonth]); // Rerun if user or month changes
 
-   const getStatusBadgeVariant = (status: Bill['status']): "default" | "secondary" | "destructive" | "outline" => {
+   const getStatusBadgeVariant = (status?: Bill['status']): "default" | "secondary" | "destructive" | "outline" => {
+      if (!status) return 'secondary'; // Default if status is missing
       switch (status) {
           case 'Paid': return 'default'; // Green
           case 'Unpaid': return 'destructive'; // Red
@@ -137,70 +124,67 @@ export default function MyBillPage() {
       <Card className="shadow-lg">
         <CardHeader className="flex flex-row justify-between items-center">
           <div>
-             <CardTitle>Bill for {currentMonth}</CardTitle>
+             <CardTitle>Bill for {currentDisplayMonth}</CardTitle>
              <CardDescription>Summary of your canteen expenses for this month.</CardDescription>
           </div>
            {isLoading ? (
-                <Skeleton className="h-6 w-20" />
+                <Skeleton className="h-6 w-20 rounded-md" />
             ) : bill ? (
               <Badge variant={getStatusBadgeVariant(bill.status)} className="text-sm">{bill.status}</Badge>
             ) : (
-              <Badge variant="secondary" className="text-sm">No Bill</Badge>
+              <Badge variant="secondary" className="text-sm">No Bill Yet</Badge>
             )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {renderSkeletons(3)}
-                </TableBody>
-            </Table>
+             <div className="py-12 text-center text-muted-foreground">Loading bill details...</div>
+            // Optionally show table skeleton if you plan to show item details
+            // <Table>...</Table>
           ) : !user ? (
               <div className="text-center py-12 text-muted-foreground">Please log in to view your bill.</div>
-          ) : !bill || bill.items.length === 0 ? (
+          ) : !bill ? (
              <div className="text-center py-12">
                  <PackageSearch className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                 <p className="text-muted-foreground">No bill items found for this month yet.</p>
+                 <p className="text-muted-foreground">No bill has been generated for you for {currentDisplayMonth} yet.</p>
+                 <p className="text-xs text-muted-foreground mt-2">Bills are typically generated at the end of the month.</p>
              </div>
           ) : (
-            <Table>
-              <TableCaption>Details of your expenses for {bill.month}.</TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {bill.items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{format(new Date(item.date), 'PP')}</TableCell>
-                    <TableCell className="font-medium">{item.description}</TableCell>
-                    <TableCell className="text-right">${item.amount.toFixed(2)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+             // If bill exists, display the total.
+             // You might fetch and display individual items if they are stored in the bill doc.
+             <div className="text-center py-12">
+                <p className="text-muted-foreground">Your total expense for {bill.month} is:</p>
+                <p className="text-4xl font-bold text-primary mt-2">${bill.total.toFixed(2)}</p>
+                {bill.dueDate && (
+                   <p className="text-sm text-muted-foreground mt-4">
+                      Due Date: {format(bill.dueDate.toDate(), 'PP')}
+                   </p>
+                )}
+                 {/* Add button to pay? */}
+             </div>
+            // <Table>
+            //   <TableCaption>Details of your expenses for {bill.month}.</TableCaption>
+            //   <TableHeader>...</TableHeader>
+            //   <TableBody>...</TableBody> // Render bill.items here if available
+            // </Table>
           )}
         </CardContent>
-         {bill && bill.items.length > 0 && (
+         {bill && !isLoading && (
             <CardFooter className="flex justify-end items-center border-t pt-4">
                  <div className="text-right">
-                    <p className="text-muted-foreground text-sm">Total Amount Due</p>
+                    <p className="text-muted-foreground text-sm">Total Amount</p>
                     <p className="text-2xl font-bold text-primary">${bill.total.toFixed(2)}</p>
                 </div>
             </CardFooter>
+         )}
+         {!bill && !isLoading && user && (
+             <CardFooter className="justify-center border-t pt-4">
+                 <p className="text-sm text-muted-foreground">Check back later for your bill.</p>
+             </CardFooter>
          )}
       </Card>
     </div>
   );
 }
 
+
+    

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -8,58 +9,96 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { FileText, Search, Filter, PackageSearch, User } from "lucide-react";
-import { format } from 'date-fns';
-import { useToast } from "@/hooks/use-toast"; // Added import for useToast
+import { format, getMonth, getYear, startOfMonth, endOfMonth } from 'date-fns';
+import { useToast } from "@/hooks/use-toast";
+import { db } from '@/lib/firebase'; // Import Firestore instance
+import { collection, getDocs, doc, updateDoc, query, where, orderBy, Timestamp } from 'firebase/firestore';
+import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 
-// Placeholder Type - Define based on your bill structure, including user info
+// Updated Type to match Firestore structure
+type BillStatus = 'Unpaid' | 'Paid' | 'Pending';
 interface UserBill {
-  id: string; // Bill ID
+  id: string; // Firestore document ID
   userId: string;
   userName: string;
   userEmail: string;
-  month: string; // e.g., "July 2024"
+  month: string; // Display month e.g., "July 2024"
+  yearMonth: string; // For filtering/sorting e.g., "2024-07"
   total: number;
-  status: 'Unpaid' | 'Paid' | 'Pending';
-  dueDate?: string; // Optional due date
+  status: BillStatus;
+  dueDate?: Timestamp | null; // Firestore Timestamp
+  createdAt?: Timestamp;
 }
 
-// Placeholder Data - Replace with API call to fetch all user bills
-const currentMonth = format(new Date(), 'MMMM yyyy');
-const lastMonth = format(new Date(new Date().setMonth(new Date().getMonth() - 1)), 'MMMM yyyy');
+// Removed Placeholder Data
 
-const initialAllBills: UserBill[] = [
-  { id: 'bill-a1', userId: 'user001', userName: 'Alice Smith', userEmail: 'alice@example.com', month: currentMonth, total: 30.00, status: 'Unpaid', dueDate: format(new Date(Date.now() + 86400000 * 7), 'PP') },
-  { id: 'bill-b2', userId: 'user002', userName: 'Bob Johnson', userEmail: 'bob@example.com', month: currentMonth, total: 55.50, status: 'Unpaid', dueDate: format(new Date(Date.now() + 86400000 * 7), 'PP') },
-  { id: 'bill-c3', userId: 'user003', userName: 'Charlie Brown', userEmail: 'charlie@example.com', month: currentMonth, total: 12.00, status: 'Paid' },
-   { id: 'bill-d4', userId: 'user001', userName: 'Alice Smith', userEmail: 'alice@example.com', month: lastMonth, total: 45.00, status: 'Paid' },
-   { id: 'bill-e5', userId: 'user002', userName: 'Bob Johnson', userEmail: 'bob@example.com', month: lastMonth, total: 62.30, status: 'Paid' },
-    { id: 'bill-f6', userId: 'user004', userName: 'David Williams', userEmail: 'david@example.com', month: currentMonth, total: 0.00, status: 'Paid' }, // User with no expenses
-];
+const billStatuses: BillStatus[] = ['Unpaid', 'Paid', 'Pending'];
 
-const billStatuses: UserBill['status'][] = ['Unpaid', 'Paid', 'Pending'];
+// Generate month options dynamically
+const generateMonthOptions = () => {
+    const options = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) { // Go back 12 months
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const displayMonth = format(date, 'MMMM yyyy');
+        const valueMonth = format(date, 'yyyy-MM');
+        options.push({ value: valueMonth, label: displayMonth });
+    }
+    return options;
+};
+
+const availableMonths = [{ value: 'all', label: 'All Months' }, ...generateMonthOptions()];
 
 export default function AllBillsPage() {
   const [allBills, setAllBills] = useState<UserBill[]>([]);
   const [filteredBills, setFilteredBills] = useState<UserBill[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all'); // 'all', 'Unpaid', 'Paid', 'Pending'
-  const [monthFilter, setMonthFilter] = useState<string>('all'); // 'all', or specific month like "July 2024"
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [monthFilter, setMonthFilter] = useState<string>('all'); // Will store 'yyyy-MM' or 'all'
   const [isLoading, setIsLoading] = useState(true);
-  const { toast } = useToast(); // Import useToast if needed for actions
-
-   // Get unique months from the bills for filter dropdown
-    const availableMonths = ['all', ...Array.from(new Set(initialAllBills.map(bill => bill.month)))];
-
+  const { toast } = useToast();
 
   useEffect(() => {
-    // TODO: Fetch all user bills from backend
-    setIsLoading(true);
-    setTimeout(() => {
-      setAllBills(initialAllBills);
-      setFilteredBills(initialAllBills); // Initially show all
-      setIsLoading(false);
-    }, 1000);
-  }, []);
+    const fetchBills = async () => {
+      setIsLoading(true);
+      try {
+        const billsCollection = collection(db, 'bills');
+        // Order by creation date or month, then user name for consistency
+        const q = query(billsCollection, orderBy('yearMonth', 'desc'), orderBy('userName'));
+        const querySnapshot = await getDocs(q);
+
+        const fetchedBills: UserBill[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          fetchedBills.push({
+            id: doc.id,
+            userId: data.userId,
+            userName: data.userName || 'Unknown User',
+            userEmail: data.userEmail || '',
+            month: data.month || format(data.yearMonth ? new Date(data.yearMonth + '-02') : new Date(), 'MMMM yyyy'), // Fallback display month
+            yearMonth: data.yearMonth, // e.g., "2024-07"
+            total: data.total || 0,
+            status: (data.status as BillStatus) || 'Pending',
+            dueDate: data.dueDate || null, // Keep as Timestamp or null
+            createdAt: data.createdAt,
+          });
+        });
+        setAllBills(fetchedBills);
+        setFilteredBills(fetchedBills); // Initialize with all bills
+      } catch (error) {
+        console.error("Error fetching bills:", error);
+        toast({
+          variant: "destructive",
+          title: "Error Loading Bills",
+          description: "Could not fetch user bills. Please try again.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchBills();
+  }, [toast]);
 
  useEffect(() => {
     let filtered = allBills;
@@ -78,11 +117,10 @@ export default function AllBillsPage() {
         filtered = filtered.filter(bill => bill.status === statusFilter);
     }
 
-    // Filter by month
+    // Filter by month (using yearMonth 'yyyy-MM' format)
      if (monthFilter !== 'all') {
-        filtered = filtered.filter(bill => bill.month === monthFilter);
+        filtered = filtered.filter(bill => bill.yearMonth === monthFilter);
      }
-
 
     setFilteredBills(filtered);
  }, [searchTerm, statusFilter, monthFilter, allBills]);
@@ -90,7 +128,7 @@ export default function AllBillsPage() {
 
    const getStatusBadgeVariant = (status: UserBill['status']): "default" | "secondary" | "destructive" | "outline" => {
       switch (status) {
-          case 'Paid': return 'default'; // Green
+          case 'Paid': return 'default'; // Greenish / Success
           case 'Unpaid': return 'destructive'; // Red
           case 'Pending': return 'secondary'; // Greyish
           default: return 'outline';
@@ -98,13 +136,47 @@ export default function AllBillsPage() {
    };
 
    // Placeholder function for actions like marking as paid
-   const handleMarkAsPaid = (billId: string) => {
-      // TODO: Implement backend logic to mark bill as paid
-       console.log(`Marking bill ${billId} as paid.`);
-       // Optimistically update UI or refetch data
-        setAllBills(prev => prev.map(b => b.id === billId ? {...b, status: 'Paid'} : b));
-       toast({ title: "Bill Status Updated", description: `Bill #${billId.substring(billId.length - 4)} marked as Paid.`});
+   const handleMarkAsPaid = async (billId: string, currentStatus: BillStatus) => {
+       if (currentStatus === 'Paid') return; // Already paid
+
+       // Use a confirmation dialog? (Optional)
+       const confirmMark = window.confirm(`Are you sure you want to mark bill #${billId.substring(billId.length - 6)} as Paid?`);
+       if (!confirmMark) return;
+
+       // Indicate loading state for this specific action if needed
+       // setIsUpdating(billId); // Example state
+
+        try {
+            const billRef = doc(db, 'bills', billId);
+            await updateDoc(billRef, {
+                status: 'Paid',
+                updatedAt: Timestamp.now() // Update timestamp
+            });
+
+           // Update local state optimistically
+           setAllBills(prev => prev.map(b => b.id === billId ? {...b, status: 'Paid'} : b));
+           toast({ title: "Bill Status Updated", description: `Bill #${billId.substring(billId.length - 6)} marked as Paid.`});
+        } catch (error) {
+           console.error("Error marking bill as paid:", error);
+           toast({ variant: "destructive", title: "Update Failed", description: "Could not update bill status." });
+        } finally {
+           // setIsUpdating(null);
+        }
    }
+
+    const renderSkeletons = (rows: number) => (
+       Array.from({ length: rows }).map((_, index) => (
+           <TableRow key={`skeleton-row-${index}`}>
+                <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+                <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                <TableCell className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
+                <TableCell className="text-right"><Skeleton className="h-8 w-20 ml-auto" /></TableCell>
+           </TableRow>
+       ))
+    );
+
 
   return (
     <div className="container mx-auto py-8">
@@ -123,16 +195,16 @@ export default function AllBillsPage() {
                  onChange={(e) => setSearchTerm(e.target.value)}
                />
              </div>
-             <div className="flex items-center gap-2 w-full md:w-auto">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground mr-2">Filter by:</span>
+             <div className="flex items-center gap-2 w-full md:w-auto flex-wrap"> {/* Added flex-wrap */}
+                <Filter className="h-4 w-4 text-muted-foreground hidden md:block" />
+                <span className="text-sm text-muted-foreground mr-2 hidden md:block">Filter by:</span>
                 <Select value={monthFilter} onValueChange={setMonthFilter}>
                   <SelectTrigger className="w-full md:w-[180px] h-9">
                     <SelectValue placeholder="Month" />
                   </SelectTrigger>
                   <SelectContent>
                     {availableMonths.map(month => (
-                      <SelectItem key={month} value={month}>{month === 'all' ? 'All Months' : month}</SelectItem>
+                      <SelectItem key={month.value} value={month.value}>{month.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -151,7 +223,6 @@ export default function AllBillsPage() {
            </CardContent>
        </Card>
 
-
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>User Bill Overview</CardTitle>
@@ -159,11 +230,28 @@ export default function AllBillsPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-             <div className="text-center py-12"><p className="text-muted-foreground">Loading bills...</p></div>
+             <Table>
+                <TableHeader>
+                   <TableRow>
+                       <TableHead>User</TableHead>
+                       <TableHead>Month</TableHead>
+                       <TableHead>Status</TableHead>
+                       <TableHead>Due Date</TableHead>
+                       <TableHead className="text-right">Total</TableHead>
+                       <TableHead className="text-right">Actions</TableHead>
+                   </TableRow>
+                </TableHeader>
+                <TableBody>
+                   {renderSkeletons(5)}
+                </TableBody>
+             </Table>
            ) : filteredBills.length === 0 ? (
                 <div className="text-center py-12">
                     <PackageSearch className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No bills found matching your filters.</p>
+                    <p className="text-muted-foreground">
+                        {allBills.length === 0 ? "No bills found in the system." : "No bills found matching your filters."}
+                    </p>
+                    {/* Maybe add a button to trigger bill generation if that's a feature */}
                 </div>
             ) : (
              <Table>
@@ -185,19 +273,23 @@ export default function AllBillsPage() {
                         <div className="font-medium">{bill.userName}</div>
                         <div className="text-xs text-muted-foreground">{bill.userEmail}</div>
                      </TableCell>
-                     <TableCell>{bill.month}</TableCell>
+                     <TableCell>{bill.month}</TableCell> {/* Display month */}
                      <TableCell>
                        <Badge variant={getStatusBadgeVariant(bill.status)}>{bill.status}</Badge>
                      </TableCell>
-                     <TableCell>{bill.dueDate || 'N/A'}</TableCell>
+                     <TableCell>
+                         {/* Format Timestamp to readable date */}
+                         {bill.dueDate ? format(bill.dueDate.toDate(), 'PP') : 'N/A'}
+                     </TableCell>
                      <TableCell className="text-right font-semibold">${bill.total.toFixed(2)}</TableCell>
                      <TableCell className="text-right">
                         {/* Add actions like View Details, Mark as Paid, Send Reminder */}
                         {bill.status === 'Unpaid' && (
-                            <Button size="sm" variant="outline" onClick={() => handleMarkAsPaid(bill.id)}>
+                            <Button size="sm" variant="outline" onClick={() => handleMarkAsPaid(bill.id, bill.status)}>
                                 Mark Paid
                             </Button>
                         )}
+                        {/* Add more actions as needed */}
                          {/* <Button size="sm" variant="ghost" className="ml-2">Details</Button> */}
                      </TableCell>
                    </TableRow>
@@ -210,3 +302,6 @@ export default function AllBillsPage() {
     </div>
   );
 }
+
+
+    
