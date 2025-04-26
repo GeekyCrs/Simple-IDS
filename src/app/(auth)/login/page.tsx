@@ -85,9 +85,10 @@ export default function LoginPage() {
       }
 
       console.log(`Redirecting to: ${redirectPath}`);
-      router.push(redirectPath);
       // Refresh the page to ensure middleware picks up the cookie and re-evaluates
       router.refresh();
+      // Push the new route after refresh
+      router.push(redirectPath);
 
 
     } catch (error: any) {
