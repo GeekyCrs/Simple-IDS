@@ -1,19 +1,12 @@
+
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
-import './globals.css';
+import { Inter } from 'next/font/google'; // Use Inter font as example
+import "@/app/globals.css";
 import { Toaster } from "@/components/ui/toaster";
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ClientProviders from './client-providers';
+import { AuthProvider } from "@/lib/auth-context"; // Import AuthProvider
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
+const inter = Inter({ subsets: ['latin'], variable: '--font-sans' }); // Setup font variable
 
 export const metadata: Metadata = {
   title: 'CanteenConnect',
@@ -26,13 +19,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased font-sans`}>
+    <html lang="en" suppressHydrationWarning> {/* Added suppressHydrationWarning */}
+      <body className={`${inter.variable} font-sans antialiased`}>
         <ClientProviders>
-          <div className="flex min-h-screen flex-col">
-            {children}
-          </div>
-          <Toaster />
+          <AuthProvider> {/* Wrap children with AuthProvider */}
+            <main className="flex min-h-screen flex-col">
+              {children}
+            </main>
+            <Toaster />
+          </AuthProvider>
         </ClientProviders>
       </body>
     </html>

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -8,9 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
-import { auth, db } from '@/firebase/firebase-config';
+import { auth, db } from '@/lib/firebase'; // Correct import path
 import { signInWithEmailAndPassword, AuthError } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore'; // Import Firestore functions
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -63,14 +64,14 @@ export default function LoginPage() {
         title: "Login Successful",
         description: "Welcome back!"
       });
-      
-      // Redirect based on fetched role using window.location for more reliable navigation
+
+      // Redirect based on fetched role using router.push
       if (userRole === 'chef') {
-        window.location.href = '/chef/dashboard';
+        router.push('/app/chef/dashboard');
       } else if (userRole === 'manager') {
-        window.location.href = '/manager/dashboard';
+        router.push('/app/manager/dashboard');
       } else {
-        window.location.href = '/dashboard';
+        router.push('/app/dashboard');
       }
 
     } catch (error: any) {
@@ -88,60 +89,62 @@ export default function LoginPage() {
   };
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl font-bold">Login</CardTitle>
-        <CardDescription>Enter your email and password to access your account</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="m@example.com"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">Password</Label>
-              <Link href="/forgot-password" passHref>
-                <span className="text-sm text-accent hover:underline cursor-pointer">
-                  Forgot password?
+    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+        <Card className="w-full max-w-md shadow-lg">
+          <CardHeader className="space-y-1 text-center">
+            <CardTitle className="text-2xl font-bold">Login</CardTitle>
+            <CardDescription>Enter your email and password to access your account</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="m@example.com"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Link href="/forgot-password" passHref>
+                    <span className="text-sm text-accent hover:underline cursor-pointer">
+                      Forgot password?
+                    </span>
+                  </Link>
+                </div>
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
+                {isLoading ? 'Logging in...' : 'Login'}
+              </Button>
+            </form>
+          </CardContent>
+          <CardFooter className="flex flex-col space-y-2 text-sm">
+            <div className="text-center text-muted-foreground">
+              Don't have an account?{' '}
+              <Link href="/signup" passHref>
+                <span className="font-medium text-accent hover:underline cursor-pointer">
+                  Sign up
                 </span>
               </Link>
             </div>
-            <Input
-              id="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-          <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
-            {isLoading ? 'Logging in...' : 'Login'}
-          </Button>
-        </form>
-      </CardContent>
-      <CardFooter className="flex flex-col space-y-2 text-sm">
-        <div className="text-center text-muted-foreground">
-          Don't have an account?{' '}
-          <Link href="/signup" passHref>
-            <span className="font-medium text-accent hover:underline cursor-pointer">
-              Sign up
-            </span>
-          </Link>
-        </div>
-      </CardFooter>
-    </Card>
+          </CardFooter>
+        </Card>
+    </div>
   );
 }

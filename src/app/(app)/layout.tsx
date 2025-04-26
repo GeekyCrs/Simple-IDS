@@ -1,10 +1,11 @@
+
 import type { ReactNode } from 'react';
 import AppSidebar from '@/components/app/app-sidebar';
-import { SidebarProvider } from '@/components/ui/sidebar';
+import ProtectedRoute from '@/components/protected-route'; // Import ProtectedRoute
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <SidebarProvider>
+    <ProtectedRoute> {/* Wrap the entire app layout */}
       <div className="flex min-h-screen">
         <AppSidebar />
         <main className="flex-1 flex flex-col bg-background">
@@ -14,6 +15,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </main>
       </div>
-    </SidebarProvider>
+    </ProtectedRoute>
   );
 }
