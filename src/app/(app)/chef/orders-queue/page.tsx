@@ -49,6 +49,8 @@ export default function OrdersQueuePage() {
              id: doc.id,
              ...data,
              orderTimestamp: orderTimestamp, // Ensure it's a usable format
+             // Ensure items array exists and is an array, default to empty array if not
+             items: Array.isArray(data.items) ? data.items : [],
           } as Order);
       });
 
@@ -122,6 +124,7 @@ export default function OrdersQueuePage() {
 
   const renderSkeletons = (count: number) => (
       Array.from({ length: count }).map((_, index) => (
+          // AccordionItem must be rendered inside Accordion
           <AccordionItem key={`skeleton-${index}`} value={`skeleton-${index}`} className="bg-card rounded-lg shadow-md border opacity-50">
               <AccordionTrigger className="px-6 py-4 hover:no-underline">
                  <div className="flex justify-between items-center w-full">
@@ -156,9 +159,10 @@ export default function OrdersQueuePage() {
       <p className="text-muted-foreground mb-6">Manage incoming orders and update their status.</p>
 
        {isLoading ? (
-          <div className="space-y-4">
+          // Wrap skeletons in the Accordion component
+          <Accordion type="multiple" className="space-y-4">
             {renderSkeletons(3)}
-          </div>
+          </Accordion>
        ) : orders.length === 0 ? (
           <Card className="text-center py-12">
               <CardHeader>
@@ -195,7 +199,8 @@ export default function OrdersQueuePage() {
                   <div>
                     <h4 className="font-semibold mb-1">Items:</h4>
                     <ul className="list-disc list-inside text-sm space-y-1">
-                      {order.items.map(item => (
+                      {/* Add null check for order.items */}
+                      {order.items && order.items.map(item => (
                         <li key={item.itemId}>{item.quantity}x {item.name} (${(item.price * item.quantity).toFixed(2)})</li>
                       ))}
                     </ul>
