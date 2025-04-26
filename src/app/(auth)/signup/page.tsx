@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
+import { auth, db } from '@/firebase/firebase-config';
+import { createUserWithEmailAndPassword, AuthError } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 
 export default function SignupPage() {
   const [email, setEmail] = useState('');
@@ -17,35 +20,72 @@ export default function SignupPage() {
   const { toast } = useToast();
   const router = useRouter();
 
+  // Function to map Firebase error codes to user-friendly messages
+  const getFirebaseAuthErrorMessage = (errorCode: string): string => {
+    switch (errorCode) {
+      case 'auth/email-already-in-use':
+        return 'This email address is already registered. Please login or use a different email.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/weak-password':
+        return 'The password is too weak. Please choose a stronger password (at least 6 characters).';
+      case 'auth/operation-not-allowed':
+        return 'Email/password accounts are not enabled. Please contact support.';
+      default:
+        return 'An unexpected error occurred during signup. Please try again.';
+    }
+  };
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
       toast({ variant: "destructive", title: "Error", description: "Passwords do not match." });
       return;
     }
+    // Basic password length check (Firebase enforces 6 characters minimum by default)
+    if (password.length < 6) {
+        toast({ variant: "destructive", title: "Weak Password", description: "Password must be at least 6 characters long." });
+        return;
+    }
+
     setIsLoading(true);
 
-    // TODO: Implement actual Firebase signup logic here
-    // Example:
-    // try {
-    //   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    //   // Handle successful signup, maybe send verification email, etc.
-    //   // Assign default 'client' role here in Firestore/Realtime Database
-    //   toast({ title: "Signup Successful", description: "Please check your email for verification." });
-    //   router.push('/login'); // Redirect to login page after signup
-    // } catch (error: any) {
-    //   toast({ variant: "destructive", title: "Signup Failed", description: error.message });
-    // } finally {
-    //   setIsLoading(false);
-    // }
+    try {
+      // Create user with Firebase Authentication
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      console.log('User created successfully:', user.uid);
 
-    // Placeholder logic
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-    console.log("Signup attempt with:", email);
-    toast({ title: "Signup Attempted", description: "Replace with actual Firebase signup." });
-    router.push('/login'); // Redirect to login after signup
+      // Store additional user data in Firestore
+      // IMPORTANT: Ensure Firestore rules allow this write operation for the newly authenticated user.
+      // Example rule: allow write: if request.auth.uid == userId;
+      const userId = user.uid;
+      const userDocRef = doc(db, "users", userId);
+      await setDoc(userDocRef, {
+        uid: userId,
+        email: email,
+        name: email.split('@')[0], // Placeholder name, consider adding a name field to the form
+        role: 'client', // Default role for new signups
+        createdAt: new Date().toISOString(),
+        status: 'active' // Default status
+      });
+      console.log('User data saved to Firestore for UID:', userId);
 
-    setIsLoading(false);
+      toast({ title: "Signup Successful", description: "Account created successfully. Please login." });
+      router.push('/login'); // Redirect to login after successful signup
+
+    } catch (error: any) {
+      console.error('Signup error:', error);
+      const authError = error as AuthError; // Type assertion
+      const errorMessage = getFirebaseAuthErrorMessage(authError.code);
+      toast({
+        variant: "destructive",
+        title: "Signup Failed",
+        description: errorMessage
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -56,6 +96,7 @@ export default function SignupPage() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSignup} className="space-y-4">
+          {/* Consider adding a Name input field here */}
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -63,6 +104,7 @@ export default function SignupPage() {
               type="email"
               placeholder="m@example.com"
               required
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={isLoading}
@@ -74,10 +116,13 @@ export default function SignupPage() {
               id="password"
               type="password"
               required
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={isLoading}
+              aria-describedby="password-hint"
             />
+             <p id="password-hint" className="text-xs text-muted-foreground">Must be at least 6 characters.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm-password">Confirm Password</Label>
@@ -85,6 +130,7 @@ export default function SignupPage() {
               id="confirm-password"
               type="password"
               required
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               disabled={isLoading}

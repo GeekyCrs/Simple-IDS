@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1070796757619",
+    "project_id": "canteenconnect-bcblf",
+    "storage_bucket": "canteenconnect-bcblf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1070796757619:android:51bd0bb885ad4531e66806",
+        "android_client_info": {
+          "package_name": "com.company.hab"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzGqBl_hmLbijXj8P6vhhdXWVzglaVcAA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

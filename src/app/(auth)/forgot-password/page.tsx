@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from 'lucide-react';
+import { auth, db } from '@/firebase/firebase-config';
+import { sendPasswordResetEmail } from 'firebase/auth';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -19,24 +21,24 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setIsLoading(true);
 
-    // TODO: Implement actual Firebase password reset logic here
-    // Example:
-    // try {
-    //   await sendPasswordResetEmail(auth, email);
-    //   toast({ title: "Password Reset Email Sent", description: "Check your inbox for instructions." });
-    //   setIsSent(true);
-    // } catch (error: any) {
-    //   toast({ variant: "destructive", title: "Error Sending Reset Email", description: error.message });
-    // } finally {
-    //   setIsLoading(false);
-    // }
-
-    // Placeholder logic
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-    console.log("Password reset requested for:", email);
-    toast({ title: "Password Reset Email Sent (Simulated)", description: "Check your inbox for instructions." });
-    setIsSent(true);
-    setIsLoading(false);
+    try {
+      // Send password reset email
+      await sendPasswordResetEmail(auth, email);
+      console.log('Password reset email sent to:', email);
+      
+      toast({ title: "Password Reset Email Sent", description: "Check your inbox for instructions." });
+      setIsSent(true);
+      
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      toast({ 
+        variant: "destructive", 
+        title: "Error", 
+        description: error.message || "Failed to send reset email" 
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

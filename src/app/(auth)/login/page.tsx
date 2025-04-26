@@ -7,7 +7,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { useRouter } from 'next/navigation'; // Use next/navigation for App Router
+import { useRouter } from 'next/navigation';
+import { auth, db } from '@/firebase/firebase-config';
+import { signInWithEmailAndPassword, AuthError } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore'; // Import Firestore functions
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -16,33 +19,72 @@ export default function LoginPage() {
   const { toast } = useToast();
   const router = useRouter();
 
+  // Function to map Firebase error codes to user-friendly messages
+  const getFirebaseAuthErrorMessage = (errorCode: string): string => {
+    switch (errorCode) {
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/user-disabled':
+        return 'This user account has been disabled.';
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+      case 'auth/invalid-credential': // General invalid credential error
+        return 'Incorrect email or password. Please try again.';
+      case 'auth/too-many-requests':
+        return 'Too many login attempts. Please try again later.';
+      default:
+        return 'An unexpected error occurred. Please try again.';
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    // TODO: Implement actual Firebase authentication logic here
-    // Example:
-    // try {
-    //   const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    //   // Handle successful login, maybe redirect based on role
-    //   toast({ title: "Login Successful", description: "Welcome back!" });
-    //   router.push('/dashboard'); // Redirect to dashboard or role-specific page
-    // } catch (error: any) {
-    //   toast({ variant: "destructive", title: "Login Failed", description: error.message });
-    // } finally {
-    //   setIsLoading(false);
-    // }
+    try {
+      // Sign in with Firebase Authentication
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      console.log('User logged in successfully:', user.uid);
 
-    // Placeholder logic
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-    console.log("Login attempt with:", email, password);
-    toast({ title: "Login Attempted", description: "Replace with actual Firebase login." });
-    // Placeholder: Redirect based on a simulated role or just to dashboard
-    if (email.includes('chef')) router.push('/chef');
-    else if (email.includes('manager')) router.push('/manager');
-    else router.push('/dashboard');
+      // Fetch user role from Firestore
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
 
-    setIsLoading(false);
+      let userRole = 'client'; // Default role
+      if (userDocSnap.exists()) {
+        userRole = userDocSnap.data()?.role || 'client';
+      } else {
+        console.warn(`No user document found for UID: ${user.uid}. Defaulting to 'client' role.`);
+        // Optionally create the user doc here if it should always exist
+      }
+
+      toast({
+        title: "Login Successful",
+        description: "Welcome back!"
+      });
+
+      // Redirect based on fetched role
+      if (userRole === 'chef') {
+        router.push('/chef/dashboard');
+      } else if (userRole === 'manager') {
+        router.push('/manager/dashboard');
+      } else {
+        router.push('/dashboard');
+      }
+
+    } catch (error: any) {
+      console.error('Login error:', error);
+      const authError = error as AuthError; // Type assertion
+      const errorMessage = getFirebaseAuthErrorMessage(authError.code);
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: errorMessage
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -60,6 +102,7 @@ export default function LoginPage() {
               type="email"
               placeholder="m@example.com"
               required
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={isLoading}
@@ -78,6 +121,7 @@ export default function LoginPage() {
               id="password"
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={isLoading}
