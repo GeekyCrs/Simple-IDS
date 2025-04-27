@@ -4,49 +4,59 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
-import { FileText, PackageSearch } from "lucide-react";
+import { FileText, PackageSearch, User, ArrowLeft } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from 'date-fns'; // For date formatting
-import { useAuth } from '@/lib/auth-context'; // Import useAuth to get current user
 import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore'; // Firestore imports
-import type { Order, OrderItemDetail } from '@/types/order'; // Import Order type
+import { collection, query, where, orderBy, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore'; // Firestore imports
+import type { Order } from '@/types/order'; // Import Order type
 import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+import { useParams } from 'next/navigation'; // To get userId from route
 
-// Removed Bill and BillItem types as we're fetching orders directly
+interface UserInfo {
+  name: string;
+  email: string;
+}
 
-export default function MyBillPage() {
-  const { user, loading: authLoading } = useAuth();
+export default function UserBillDetailPage() {
+  const params = useParams();
+  const userId = params.userId as string; // Get userId from URL
   const [orders, setOrders] = useState<Order[]>([]);
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentMonthTotal, setCurrentMonthTotal] = useState(0);
   const currentDisplayMonth = format(new Date(), 'MMMM yyyy');
 
   useEffect(() => {
-    if (authLoading) {
-        setIsLoading(true);
-        return;
-    }
-    if (!user) {
+    if (!userId) {
       setIsLoading(false);
-      setOrders([]);
-      setCurrentMonthTotal(0);
-      return;
+      return; // No user ID, can't fetch data
     }
 
-    const fetchUserOrdersForMonth = async () => {
+    const fetchData = async () => {
       setIsLoading(true);
       const now = new Date();
       const monthStart = startOfMonth(now);
       const monthEnd = endOfMonth(now);
 
       try {
+        // Fetch User Info
+        const userDocRef = doc(db, "users", userId);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data();
+          setUserInfo({ name: data.name || 'Unknown User', email: data.email || 'N/A' });
+        } else {
+          setUserInfo(null); // User not found
+          console.error(`User with ID ${userId} not found.`);
+        }
+
+        // Fetch User Orders for the Current Month
         const ordersCollection = collection(db, 'orders');
-        // Query orders for the current user within the current month.
-        // Consider filtering by status === 'Completed' if only completed orders count towards the bill.
-        // For now, fetching all orders in the month for simplicity.
         const q = query(
             ordersCollection,
-            where('userId', '==', user.id),
+            where('userId', '==', userId),
             where('orderTimestamp', '>=', Timestamp.fromDate(monthStart)),
             where('orderTimestamp', '<=', Timestamp.fromDate(monthEnd)),
             orderBy('orderTimestamp', 'desc') // Show most recent first
@@ -57,17 +67,16 @@ export default function MyBillPage() {
         let total = 0;
         querySnapshot.forEach((doc) => {
             const data = doc.data();
-            // Ensure timestamp is usable
-             const orderTimestamp = data.orderTimestamp instanceof Timestamp
-                ? data.orderTimestamp.toDate().toISOString()
-                : data.orderTimestamp || new Date().toISOString();
+            const orderTimestamp = data.orderTimestamp instanceof Timestamp
+              ? data.orderTimestamp.toDate().toISOString()
+              : data.orderTimestamp || new Date().toISOString();
 
-             const order = {
-                 id: doc.id,
-                 ...data,
-                 orderTimestamp: orderTimestamp,
-                 items: Array.isArray(data.items) ? data.items : [], // Ensure items is an array
-             } as Order;
+            const order = {
+                id: doc.id,
+                ...data,
+                orderTimestamp: orderTimestamp,
+                items: Array.isArray(data.items) ? data.items : [], // Ensure items is an array
+            } as Order;
 
             fetchedOrders.push(order);
             total += order.total || 0; // Sum up the total
@@ -77,17 +86,18 @@ export default function MyBillPage() {
         setCurrentMonthTotal(total);
 
       } catch (error) {
-        console.error("Error fetching user orders:", error);
+        console.error("Error fetching user bill details:", error);
         setOrders([]);
         setCurrentMonthTotal(0);
+        setUserInfo(null);
         // Handle error, maybe show toast
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchUserOrdersForMonth();
-  }, [user, authLoading]); // Rerun if user changes
+    fetchData();
+  }, [userId]); // Rerun if userId changes
 
    const renderSkeletons = (rows: number) => (
         Array.from({ length: rows }).map((_, index) => (
@@ -101,12 +111,30 @@ export default function MyBillPage() {
 
   return (
     <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><FileText /> My Bill Details</h1>
+      <div className="flex items-center justify-between mb-6">
+         <h1 className="text-3xl font-bold flex items-center gap-2"><FileText /> User Bill Details</h1>
+          <Link href="/manager/all-bills" passHref>
+              <Button variant="outline">
+                 <ArrowLeft className="mr-2 h-4 w-4" /> Back to All Bills
+              </Button>
+          </Link>
+      </div>
 
       <Card className="shadow-lg">
         <CardHeader>
-             <CardTitle>Details for {currentDisplayMonth}</CardTitle>
-             <CardDescription>Detailed view of your canteen expenses for this month.</CardDescription>
+             {isLoading ? (
+                <>
+                    <Skeleton className="h-7 w-48" />
+                    <Skeleton className="h-4 w-64 mt-1" />
+                </>
+             ) : userInfo ? (
+                <>
+                 <CardTitle>Bill for {userInfo.name} ({currentDisplayMonth})</CardTitle>
+                 <CardDescription>Email: {userInfo.email}</CardDescription>
+                </>
+             ) : (
+                 <CardTitle>User Not Found</CardTitle>
+             )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -122,16 +150,16 @@ export default function MyBillPage() {
                      {renderSkeletons(3)}
                  </TableBody>
              </Table>
-          ) : !user ? (
-              <div className="text-center py-12 text-muted-foreground">Please log in to view your bill details.</div>
+          ) : !userInfo ? (
+             <div className="text-center py-12 text-muted-foreground">Could not load details for this user.</div>
           ) : orders.length === 0 ? (
              <div className="text-center py-12">
                  <PackageSearch className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                 <p className="text-muted-foreground">You have no orders recorded for {currentDisplayMonth} yet.</p>
+                 <p className="text-muted-foreground">{userInfo.name} has no orders recorded for {currentDisplayMonth} yet.</p>
              </div>
           ) : (
              <Table>
-               <TableCaption>Your expenses for {currentDisplayMonth}.</TableCaption>
+               <TableCaption>Expenses for {userInfo.name} during {currentDisplayMonth}.</TableCaption>
                <TableHeader>
                  <TableRow>
                    <TableHead className="w-[150px]">Date</TableHead>
@@ -164,12 +192,10 @@ export default function MyBillPage() {
              <div className="text-right">
                 <p className="text-muted-foreground text-sm">Total for {currentDisplayMonth}</p>
                 <p className="text-2xl font-bold text-primary">${currentMonthTotal.toFixed(2)}</p>
-                 {/* Maybe add payment status info here later if needed */}
+                 {/* Add payment status controls if needed */}
             </div>
         </CardFooter>
       </Card>
     </div>
   );
 }
-
-      
