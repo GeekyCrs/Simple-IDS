@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -15,7 +14,8 @@ import {
   BookOpen,
   Package,
   FileText,
-  UtensilsCrossed
+  UtensilsCrossed,
+  DollarSign
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -35,15 +35,16 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
   const { toast } = useToast();
 
   // Navigation items - ensure paths match your route structure
-  // Added explicit manager dashboard link and settings link
+  // Added Initial Capital link
   const navigation = [
     { name: "Dashboard", href: "/manager/dashboard", icon: BarChart3 },
+    { name: "Initial Capital", href: "/manager/initial-capital", icon: DollarSign }, // Added Initial Capital link
     { name: "Manage Users", href: "/manager/manage-users", icon: Users },
     { name: "Manage Menu", href: "/manager/manage-menu", icon: BookOpen },
     { name: "Manage Stock", href: "/manager/manage-stock", icon: Package },
     { name: "All Bills", href: "/manager/all-bills", icon: FileText },
     { name: "Orders Queue", href: "/chef/orders-queue", icon: UtensilsCrossed },
-    { name: "Settings", href: "/manager/settings", icon: Settings }, // Added Settings link
+    { name: "Settings", href: "/manager/settings", icon: Settings },
   ];
 
   const handleSignOut = async () => {
