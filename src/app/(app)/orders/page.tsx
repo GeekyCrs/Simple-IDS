@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MinusCircle, PlusCircle, Trash2, ShoppingCart, PackageSearch } from "lucide-react";
+import { MinusCircle, PlusCircle, Trash2, ShoppingCart, PackageSearch, DollarSign } from "lucide-react"; // Added DollarSign
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -17,13 +17,12 @@ import { db } from '@/lib/firebase'; // Import Firestore instance
 import { collection, addDoc, doc, runTransaction, Timestamp, getDoc, serverTimestamp } from 'firebase/firestore'; // Firestore imports
 import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
 import type { Order, OrderItemDetail } from '@/types/order'; // Import Order types
+import { formatUsd, formatLbp, convertUsdToLbp, displayCurrencyDual } from '@/lib/utils'; // Import currency utils
 
 interface CartItem extends MenuItem {
   orderQuantity: number;
 }
 
-// Assume cart state might be managed locally or passed via context/state management
-// For this example, we start with an empty cart and provide a way to add items (likely from the menu page)
 export default function OrderPage() {
   const { user, loading: authLoading } = useAuth(); // Get user from context
   const [cartItems, setCartItems] = useState<CartItem[]>([]); // Start with empty cart
@@ -33,32 +32,31 @@ export default function OrderPage() {
   const { toast } = useToast();
   const router = useRouter();
 
-   // Placeholder: In a real app, cartItems would likely be populated
-   // from a global state or fetched from localStorage/sessionStorage.
-   // Example of adding an item (you'd call this from the Menu page):
-   // const addItemToCart = (item: MenuItem) => {
-   //    setCartItems(prev => { /* logic to add/update item */ });
-   // }
-   // For demonstration, let's add placeholder data if needed for testing UI
     useEffect(() => {
-      // Simulate adding items if cart is empty (remove in production)
       if (cartItems.length === 0 && !authLoading && user) {
-         // You might fetch cart from localStorage here
-         // Example: const savedCart = localStorage.getItem('cart'); if (savedCart) setCartItems(JSON.parse(savedCart));
-         // Or set some demo data for quick UI checks:
-          // setCartItems([
-          //    { id: 'demo1', name: 'Demo Burger', description: 'A tasty demo', price: 10.00, category: 'Lunch', quantityInStock: 20, orderQuantity: 1 },
-          //    { id: 'demo2', name: 'Demo Drink', description: 'Refreshing demo', price: 2.00, category: 'Beverage', quantityInStock: 50, orderQuantity: 1 },
-          // ]);
+        // Example fetch from localStorage:
+        // const savedCart = localStorage.getItem(`cart_${user.id}`);
+        // if (savedCart) {
+        //   try {
+        //      setCartItems(JSON.parse(savedCart));
+        //   } catch (e) { console.error("Failed to parse cart from localStorage", e); localStorage.removeItem(`cart_${user.id}`); }
+        // }
       }
     }, [authLoading, user]); // Effect runs when auth state is known
+
+    // Persist cart to localStorage whenever it changes
+    useEffect(() => {
+       if (user && !authLoading) {
+          localStorage.setItem(`cart_${user.id}`, JSON.stringify(cartItems));
+       }
+    }, [cartItems, user, authLoading]);
+
 
   const updateQuantity = (itemId: string, change: number) => {
     setCartItems(prevCart => {
        const updatedCart = prevCart.map(item => {
             if (item.id === itemId) {
                 const newQuantity = Math.max(0, item.orderQuantity + change);
-                // Check against available stock BEFORE updating state
                 if (change > 0 && newQuantity > item.quantityInStock) {
                     toast({
                         variant: "destructive",
@@ -72,7 +70,6 @@ export default function OrderPage() {
             return item;
         }).filter(item => item.orderQuantity > 0); // Remove item if quantity becomes 0
 
-       // TODO: Persist cart changes (e.g., localStorage.setItem('cart', JSON.stringify(updatedCart));)
        return updatedCart;
      });
   };
@@ -81,13 +78,12 @@ export default function OrderPage() {
    const removeItem = (itemId: string) => {
       setCartItems(prevCart => {
         const updatedCart = prevCart.filter(item => item.id !== itemId);
-        // TODO: Persist cart changes (e.g., localStorage.removeItem... or update)
         return updatedCart;
       });
      toast({ title: "Item removed from order." });
    };
 
-  const calculateTotal = () => {
+  const calculateTotalUsd = () => {
     return cartItems.reduce((total, item) => total + item.price * item.orderQuantity, 0);
   };
 
@@ -103,16 +99,18 @@ export default function OrderPage() {
     }
     setIsLoading(true);
 
+    const totalUsd = calculateTotalUsd();
+
     const orderData: Omit<Order, 'id'> = {
       userId: user.id,
-      userName: user.name, // Include user name for display in queue
+      userName: user.name || 'Unknown User', // Include user name for display in queue
       items: cartItems.map(item => ({
           itemId: item.id, // Keep reference to the menu item ID
           name: item.name,
-          price: item.price,
+          price: item.price, // Price per item in USD
           quantity: item.orderQuantity,
         })),
-      total: calculateTotal(),
+      total: totalUsd, // Total in USD
       notes: notes || '', // Ensure notes is not undefined
       preferredTime: dinnerTime || '', // Ensure preferredTime is not undefined
       orderTimestamp: serverTimestamp(), // Use Firestore server timestamp
@@ -120,13 +118,10 @@ export default function OrderPage() {
     };
 
     try {
-        // Use Firestore Transaction to ensure atomicity (add order and update stock)
         await runTransaction(db, async (transaction) => {
-            // 1. Add the order document
             const newOrderRef = doc(collection(db, "orders")); // Auto-generate ID
             transaction.set(newOrderRef, orderData);
 
-            // 2. Update stock for each item in the order
             for (const item of cartItems) {
                 const menuItemRef = doc(db, "menuItems", item.id);
                 const menuItemSnap = await transaction.get(menuItemRef);
@@ -147,18 +142,18 @@ export default function OrderPage() {
         });
 
         console.log("Order placed successfully with transaction.");
-        toast({ title: "Order Placed Successfully!", description: `Total: $${calculateTotal().toFixed(2)}. The chef has been notified.` });
+        const formattedTotal = displayCurrencyDual(totalUsd);
+        toast({ title: "Order Placed Successfully!", description: `Total: ${formattedTotal}. The chef has been notified.` });
 
-        // Clear local cart state and potentially persisted state (localStorage)
+        // Clear local cart state and persisted state
         setCartItems([]);
         setNotes('');
         setDinnerTime('');
-        // localStorage.removeItem('cart'); // Example for clearing persisted cart
+        if (user) {
+          localStorage.removeItem(`cart_${user.id}`); // Clear persisted cart for the user
+        }
 
-        // Redirect after successful order
         router.push('/order-history');
-
-        // TODO: Implement push notification to Chef (typically via a Cloud Function triggered by the new order document)
 
     } catch (error: any) {
         console.error("Error placing order:", error);
@@ -172,7 +167,7 @@ export default function OrderPage() {
     }
   };
 
-  const total = calculateTotal();
+  const totalUsd = calculateTotalUsd();
 
   if (authLoading) {
       return (
@@ -219,21 +214,20 @@ export default function OrderPage() {
               <Card key={item.id} className="flex items-center p-4 gap-4 shadow-sm">
                 <div className="flex-grow">
                   <h3 className="font-medium">{item.name}</h3>
-                  <p className="text-sm text-muted-foreground">${item.price.toFixed(2)} each</p>
-                   {/* Optional: Show stock if helpful */}
+                  <p className="text-sm text-muted-foreground">{displayCurrencyDual(item.price)} each</p>
                    {/* <p className="text-xs text-muted-foreground">Stock: {item.quantityInStock}</p> */}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, -1)}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, -1)} disabled={isLoading}>
                     <MinusCircle className="h-4 w-4" />
                   </Button>
                   <span className="font-medium w-6 text-center">{item.orderQuantity}</span>
-                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, 1)}>
+                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, 1)} disabled={isLoading || item.orderQuantity >= item.quantityInStock}>
                     <PlusCircle className="h-4 w-4" />
                   </Button>
                 </div>
-                 <p className="font-semibold w-16 text-right">${(item.price * item.orderQuantity).toFixed(2)}</p>
-                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => removeItem(item.id)}>
+                 <p className="font-semibold w-28 text-right text-sm">{displayCurrencyDual(item.price * item.orderQuantity)}</p>
+                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => removeItem(item.id)} disabled={isLoading}>
                    <Trash2 className="h-4 w-4" />
                  </Button>
               </Card>
@@ -271,7 +265,10 @@ export default function OrderPage() {
                 </div>
                 <div className="flex justify-between items-center pt-4 border-t">
                   <span className="text-lg font-semibold">Total:</span>
-                  <span className="text-xl font-bold text-primary">${total.toFixed(2)}</span>
+                  <span className="text-xl font-bold text-primary flex items-center gap-1">
+                    <DollarSign className="h-4 w-4" />
+                    {displayCurrencyDual(totalUsd)}
+                   </span>
                 </div>
               </CardContent>
               <CardFooter>
@@ -286,5 +283,3 @@ export default function OrderPage() {
     </div>
   );
 }
-
-      

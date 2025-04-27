@@ -6,13 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileText, Search, User, Eye } from "lucide-react";
+import { FileText, Search, User, Eye, DollarSign, Loader2 } from "lucide-react"; // Added icons
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, getDocs, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, where, Timestamp, aggregate, sum } from 'firebase/firestore';
 import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 import { useRouter } from 'next/navigation'; // Import useRouter for navigation
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // Import Avatar
+import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { displayCurrencyDual } from '@/lib/utils'; // Import currency utility
 
 // User Type Definition matching Firestore 'users' collection
 interface User {
@@ -22,60 +24,86 @@ interface User {
   role: 'client' | 'chef' | 'manager';
   status: 'active' | 'inactive';
   imageUrl?: string;
+  currentMonthTotalUsd?: number; // Add field to store calculated total
 }
 
 export default function AllBillsPage() {
-  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [allUsersWithBills, setAllUsersWithBills] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const router = useRouter(); // Initialize router
 
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchUsersAndBills = async () => {
       setIsLoading(true);
+      setError(null);
+      const now = new Date();
+      const monthStart = startOfMonth(now);
+      const monthEnd = endOfMonth(now);
+
       try {
+        // 1. Fetch all billable users (e.g., clients and chefs, or filter as needed)
         const usersCollection = collection(db, 'users');
-        // Fetch only clients and chefs (or maybe all users except managers?)
-        // For simplicity, fetch all for now, can filter later if needed
-        const q = query(usersCollection, orderBy('name'));
-        const querySnapshot = await getDocs(q);
+        const usersQuery = query(usersCollection, where('role', 'in', ['client', 'chef']), orderBy('name')); // Example: only clients/chefs
+        const usersSnapshot = await getDocs(usersQuery);
 
         const fetchedUsers: User[] = [];
-        querySnapshot.forEach((doc) => {
+        usersSnapshot.forEach((doc) => {
           const data = doc.data();
-           // Only include active clients/chefs if needed for billing
-           // if (data.role !== 'manager' && data.status === 'active') {
-              fetchedUsers.push({
-                id: doc.id,
-                name: data.name || 'Unknown User',
-                email: data.email || '',
-                role: data.role || 'client',
-                status: data.status || 'active',
-                imageUrl: data.imageUrl || undefined,
-              } as User);
-           // }
+          fetchedUsers.push({
+            id: doc.id,
+            name: data.name || 'Unknown User',
+            email: data.email || '',
+            role: data.role || 'client',
+            status: data.status || 'active',
+            imageUrl: data.imageUrl || undefined,
+            currentMonthTotalUsd: 0, // Initialize total
+          } as User);
         });
-        setAllUsers(fetchedUsers);
+
+        // 2. Fetch and aggregate bills for each user for the current month
+        const ordersCollection = collection(db, 'orders');
+        for (const user of fetchedUsers) {
+          const userOrdersQuery = query(
+            ordersCollection,
+            where('userId', '==', user.id),
+            where('orderTimestamp', '>=', Timestamp.fromDate(monthStart)),
+            where('orderTimestamp', '<=', Timestamp.fromDate(monthEnd))
+            // where('status', '==', 'Completed') // Optional: filter by status
+          );
+
+          const billSnapshot = await aggregate(userOrdersQuery, {
+            totalBill: sum('total') // Ensure 'total' field exists and is numeric
+          });
+          user.currentMonthTotalUsd = billSnapshot.data().totalBill || 0;
+        }
+
+        setAllUsersWithBills(fetchedUsers);
         setFilteredUsers(fetchedUsers); // Initialize with all users
-      } catch (error) {
-        console.error("Error fetching users:", error);
+
+      } catch (err) {
+        console.error("Error fetching users and bills:", err);
+        setError("Failed to load user bills. Please try again.");
+        setAllUsersWithBills([]);
+        setFilteredUsers([]);
         toast({
           variant: "destructive",
-          title: "Error Loading Users",
-          description: "Could not fetch user list for billing. Please try again.",
+          title: "Error Loading Data",
+          description: "Could not fetch user list and bills.",
         });
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchUsers();
+    fetchUsersAndBills();
   }, [toast]);
 
  useEffect(() => {
-    let filtered = allUsers;
+    let filtered = allUsersWithBills;
 
     // Filter by search term (user name or email)
     if (searchTerm) {
@@ -86,13 +114,12 @@ export default function AllBillsPage() {
         );
     }
 
-    // Optional: Filter out managers if they shouldn't have bills shown
-    filtered = filtered.filter(user => user.role !== 'manager');
-
+    // No need to filter managers here as the initial query excludes them
     setFilteredUsers(filtered);
- }, [searchTerm, allUsers]);
+ }, [searchTerm, allUsersWithBills]);
 
  const getInitials = (name: string) => {
+    if (!name) return "?";
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
  }
 
@@ -109,6 +136,7 @@ export default function AllBillsPage() {
                     <Skeleton className="h-5 w-32" />
                   </div>
                 </TableCell>
+                <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                 <TableCell><Skeleton className="h-5 w-40" /></TableCell>
                 <TableCell className="text-right"><Skeleton className="h-8 w-24 ml-auto" /></TableCell>
            </TableRow>
@@ -133,14 +161,17 @@ export default function AllBillsPage() {
                  onChange={(e) => setSearchTerm(e.target.value)}
                />
              </div>
-             {/* Removed month/status filters as we show users now */}
+             {/* Display Current Month */}
+             <div className="ml-auto text-sm text-muted-foreground">
+                Showing Bills for: <span className="font-medium text-foreground">{format(new Date(), 'MMMM yyyy')}</span>
+             </div>
            </CardContent>
        </Card>
 
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle>User List for Billing</CardTitle>
-          <CardDescription>Select a user to view their detailed bill.</CardDescription>
+          <CardTitle>User Bills ({format(new Date(), 'MMMM')})</CardTitle>
+          <CardDescription>Select a user to view their detailed bill for the current month.</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -148,7 +179,8 @@ export default function AllBillsPage() {
                 <TableHeader>
                    <TableRow>
                        <TableHead>User</TableHead>
-                       <TableHead>Email</TableHead>
+                       <TableHead>Role</TableHead>
+                       <TableHead>Current Month Total</TableHead>
                        <TableHead className="text-right">Actions</TableHead>
                    </TableRow>
                 </TableHeader>
@@ -156,20 +188,23 @@ export default function AllBillsPage() {
                    {renderSkeletons(5)}
                 </TableBody>
              </Table>
+           ) : error ? (
+               <div className="text-center py-12 text-destructive">{error}</div>
            ) : filteredUsers.length === 0 ? (
                 <div className="text-center py-12">
                     <User className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                     <p className="text-muted-foreground">
-                        {allUsers.filter(u => u.role !== 'manager').length === 0 ? "No billable users found." : "No users found matching your search."}
+                        {allUsersWithBills.length === 0 ? "No billable users found." : "No users found matching your search."}
                     </p>
                 </div>
             ) : (
              <Table>
-               <TableCaption>List of users with potential bills.</TableCaption>
+               <TableCaption>List of users and their current month's bill total.</TableCaption>
                <TableHeader>
                  <TableRow>
                    <TableHead>User</TableHead>
-                   <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                   <TableHead>Current Month Total</TableHead>
                    <TableHead className="text-right">Actions</TableHead>
                  </TableRow>
                </TableHeader>
@@ -182,12 +217,21 @@ export default function AllBillsPage() {
                              <AvatarImage src={user.imageUrl} alt={user.name} />
                              <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                            </Avatar>
-                          <span className="font-medium">{user.name}</span>
+                          <div className="flex flex-col">
+                             <span className="font-medium">{user.name}</span>
+                             <span className="text-xs text-muted-foreground">{user.email}</span>
+                           </div>
                         </div>
                      </TableCell>
-                     <TableCell>{user.email}</TableCell>
+                     <TableCell className="capitalize">{user.role}</TableCell>
+                     <TableCell>
+                         <div className="flex items-center gap-1 text-sm font-medium">
+                            <DollarSign className="h-4 w-4 text-primary" />
+                            {displayCurrencyDual(user.currentMonthTotalUsd ?? 0)}
+                         </div>
+                     </TableCell>
                      <TableCell className="text-right">
-                        <Button size="sm" variant="outline" onClick={() => handleViewBill(user.id)}>
+                        <Button size="sm" variant="outline" onClick={() => handleViewBill(user.id)} disabled={(user.currentMonthTotalUsd ?? 0) === 0}>
                             <Eye className="mr-2 h-4 w-4" /> View Bill
                         </Button>
                      </TableCell>
@@ -201,5 +245,3 @@ export default function AllBillsPage() {
     </div>
   );
 }
-
-    

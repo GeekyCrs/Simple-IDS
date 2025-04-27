@@ -7,63 +7,64 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BellRing, UtensilsCrossed, Package, BookOpen, ChefHat, Loader2, CheckCircle, XCircle } from "lucide-react"; // Added icons
+import { BellRing, UtensilsCrossed, Package, BookOpen, ChefHat, Loader2, CheckCircle, XCircle, DollarSign } from "lucide-react"; // Added DollarSign
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, addDoc, query, where, getDocs, limit, Timestamp, serverTimestamp, doc, setDoc } from 'firebase/firestore'; // Firestore imports
+import { collection, addDoc, query, where, getDocs, limit, Timestamp, serverTimestamp, doc, setDoc, getCountFromServer } from 'firebase/firestore'; // Firestore imports
 import { format } from 'date-fns';
+import { displayCurrencyDual } from '@/lib/utils'; // Import currency utility
 
 export default function ChefDashboardPage() {
   const [mealName, setMealName] = useState('');
   const [mealDescription, setMealDescription] = useState('');
-  const [mealPrice, setMealPrice] = useState('');
+  const [mealPriceUsd, setMealPriceUsd] = useState(''); // Price state specifically for USD
   const [isPosting, setIsPosting] = useState(false);
-  const [dailyMealPosted, setDailyMealPosted] = useState<boolean | null>(null); // Use null for initial loading state
-  const [pendingOrdersCount, setPendingOrdersCount] = useState(0); // Fetch this later
+  const [dailyMealPosted, setDailyMealPosted] = useState<boolean | null>(null);
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
   const { toast } = useToast();
 
-  // Check if daily meal has been posted for today
   useEffect(() => {
     const checkDailyMealStatus = async () => {
-      setDailyMealPosted(null); // Set to loading
+      setDailyMealPosted(null);
       const todayDateStr = format(new Date(), 'yyyy-MM-dd');
       try {
         const dailyMealsCollection = collection(db, 'dailyMeals');
         const q = query(dailyMealsCollection, where('date', '==', todayDateStr), limit(1));
         const querySnapshot = await getDocs(q);
-        setDailyMealPosted(!querySnapshot.empty); // True if a document exists for today
+        setDailyMealPosted(!querySnapshot.empty);
       } catch (error) {
         console.error("Error checking daily meal status:", error);
-        // Handle error - maybe assume not posted or show an error state?
-        setDailyMealPosted(false); // Default to false on error
+        setDailyMealPosted(false);
       }
     };
     checkDailyMealStatus();
-  }, []); // Run once on mount
+  }, []);
 
-  // TODO: Fetch pending orders count
    useEffect(() => {
       const fetchPendingOrders = async () => {
-         // Implement logic to count orders with 'Pending' or 'Preparing' status
-         // const ordersCollection = collection(db, 'orders');
-         // const q = query(ordersCollection, where('status', 'in', ['Pending', 'Preparing']));
-         // const snapshot = await getCountFromServer(q); // Use getCountFromServer for efficiency
-         // setPendingOrdersCount(snapshot.data().count);
-         setPendingOrdersCount(5); // Placeholder
+         try {
+           const ordersCollection = collection(db, 'orders');
+           const q = query(ordersCollection, where('status', 'in', ['Pending', 'Preparing'])); // Count active orders
+           const snapshot = await getCountFromServer(q);
+           setPendingOrdersCount(snapshot.data().count);
+         } catch (error) {
+            console.error("Error fetching pending orders count:", error);
+            setPendingOrdersCount(0); // Default to 0 on error
+         }
       };
       fetchPendingOrders();
-   }, []);
+   }, []); // Run once on mount and potentially refresh periodically
 
 
   const handlePostDailyMeal = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsPosting(true);
 
-    const price = parseFloat(mealPrice);
-    if (isNaN(price) || price <= 0) {
-      toast({ variant: "destructive", title: "Invalid Price", description: "Please enter a valid positive price." });
+    const priceUsd = parseFloat(mealPriceUsd);
+    if (isNaN(priceUsd) || priceUsd <= 0) {
+      toast({ variant: "destructive", title: "Invalid Price", description: "Please enter a valid positive price in USD." });
       setIsPosting(false);
       return;
     }
@@ -72,32 +73,29 @@ export default function ChefDashboardPage() {
     const mealData = {
       name: mealName,
       description: mealDescription,
-      price: price,
-      date: todayDateStr, // Store date as YYYY-MM-DD string
-      postedAt: serverTimestamp(), // Use Firestore server timestamp
+      price: priceUsd, // Store price as USD number
+      date: todayDateStr,
+      postedAt: serverTimestamp(),
     };
 
     try {
-      // 1. Save the daily meal to Firestore. Use the date as the document ID for easy lookup.
       const dailyMealRef = doc(db, 'dailyMeals', todayDateStr);
-      await setDoc(dailyMealRef, mealData); // Use setDoc to overwrite if already exists for today
+      await setDoc(dailyMealRef, mealData); // Use setDoc to ensure only one meal per day
 
       console.log("Daily meal posted successfully:", mealData);
+      const formattedPrice = displayCurrencyDual(priceUsd);
       toast({
         title: "Daily Meal Posted!",
-        description: `${mealName} is now available for ${todayDateStr}.`
+        description: `${mealName} is now available for ${formattedPrice}. Notifications sent (simulated).`
       });
 
-      // 2. Trigger push notifications (requires backend/cloud function setup)
-      //    - A Cloud Function listening to writes on 'dailyMeals' could trigger FCM.
-      //    - sendPushNotification('all_clients', `Today's meal: ${mealName} for $${price.toFixed(2)}! Tap to order.`);
+      // TODO: Trigger actual push notifications via Cloud Function
       console.log("Push notification trigger simulated for all clients.");
 
-
-      setDailyMealPosted(true); // Update UI state
+      setDailyMealPosted(true);
       setMealName('');
       setMealDescription('');
-      setMealPrice('');
+      setMealPriceUsd(''); // Reset USD price input
 
     } catch (error) {
         console.error("Error posting daily meal:", error);
@@ -138,16 +136,16 @@ export default function ChefDashboardPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="mealPrice">Price ($)</Label>
+              <Label htmlFor="mealPriceUsd">Price (USD)</Label>
               <Input
-                id="mealPrice"
+                id="mealPriceUsd"
                 type="number"
                 step="0.01"
                 min="0.01"
                 placeholder="e.g., 15.00"
                 required
-                value={mealPrice}
-                onChange={(e) => setMealPrice(e.target.value)}
+                value={mealPriceUsd}
+                onChange={(e) => setMealPriceUsd(e.target.value)}
                 disabled={isPosting}
               />
             </div>
@@ -169,7 +167,6 @@ export default function ChefDashboardPage() {
          <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
          <p className="font-medium text-lg">Today's meal has been posted.</p>
          <p className="text-muted-foreground">You can manage the menu or stock using the links below.</p>
-         {/* Optionally add an "Edit Today's Meal" button here */}
      </CardContent>
   );
 

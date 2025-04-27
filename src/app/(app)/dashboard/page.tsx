@@ -4,48 +4,47 @@
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { BellRing, Check, Utensils, BookOpen, Loader2, XCircle } from "lucide-react"; // Added Loader2, XCircle
+import { BellRing, Check, Utensils, BookOpen, Loader2, XCircle, DollarSign } from "lucide-react"; // Added DollarSign
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, query, where, getDocs, limit, Timestamp } from 'firebase/firestore'; // Firestore imports
+import { collection, query, where, getDocs, limit, Timestamp, addDoc, serverTimestamp, doc, runTransaction, getDoc } from 'firebase/firestore'; // Firestore imports
 import type { MenuItem } from '@/types/menu'; // Use MenuItem for structure consistency if needed
 import { format } from 'date-fns';
 import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
+import { displayCurrencyDual } from '@/lib/utils'; // Import currency utility
+import { useAuth } from '@/lib/auth-context'; // Import useAuth
+import type { Order } from '@/types/order'; // Import Order type
+import { useRouter } from 'next/navigation';
 
-// Define a type for the daily meal post structure
+// Define a type for the daily meal post structure (price is USD)
 interface DailyMealPost {
   id: string; // Firestore document ID (usually the date YYYY-MM-DD)
   name: string;
   description: string;
-  price: number;
+  price: number; // Price in USD
   date: string; // YYYY-MM-DD format
   postedAt: Timestamp; // Firestore Timestamp when posted
 }
 
 export default function ClientDashboardPage() {
+  const { user, loading: authLoading } = useAuth(); // Get user context
   const [dailyMeal, setDailyMeal] = useState<DailyMealPost | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOrdering, setIsOrdering] = useState(false); // Loading state for ordering button
   const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     const fetchDailyMeal = async () => {
       setIsLoading(true);
       const todayDateStr = format(new Date(), 'yyyy-MM-dd');
       try {
-        const dailyMealsCollection = collection(db, 'dailyMeals'); // Assume 'dailyMeals' collection
-        // Query for the meal posted today, identified by the date string
-        const q = query(
-          dailyMealsCollection,
-          where('date', '==', todayDateStr), // Match today's date
-          limit(1) // Should only be one meal per day
-        );
+        const dailyMealRef = doc(db, 'dailyMeals', todayDateStr); // Direct lookup by ID
+        const docSnap = await getDoc(dailyMealRef);
 
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const doc = querySnapshot.docs[0];
-          setDailyMeal({ id: doc.id, ...doc.data() } as DailyMealPost);
+        if (docSnap.exists()) {
+          setDailyMeal({ id: docSnap.id, ...docSnap.data() } as DailyMealPost);
         } else {
           setDailyMeal(null); // No meal posted for today
         }
@@ -65,26 +64,60 @@ export default function ClientDashboardPage() {
     fetchDailyMeal();
   }, [toast]);
 
-
-  const handleOrderDailyMeal = () => {
+  const handleOrderDailyMeal = async () => {
+     if (!user) {
+        toast({ variant: "destructive", title: "Not Logged In", description: "Please log in to place an order." });
+        router.push('/login');
+        return;
+     }
     if (!dailyMeal) {
        toast({ variant: "destructive", title: "Not Available", description: "Today's meal is not available or hasn't been posted." });
        return;
     }
-    // TODO: Implement order logic
-    // 1. Create an order document in Firestore 'orders' collection.
-    //    - Include meal details (name, price), user ID, timestamp, status ('Pending').
-    //    - This will likely involve a transaction to also update the user's bill or add to a monthly aggregate.
-    // 2. Optionally, trigger a push notification to the chef about the new order.
-    // 3. Update stock if daily meal has limited quantity (less common).
 
-    console.log("Ordering daily meal:", dailyMeal.name);
-    toast({
-      title: `Ordered ${dailyMeal.name}!`,
-      description: `Added $${dailyMeal.price.toFixed(2)} to your bill (simulated).`,
-      // action: <Button variant="outline" size="sm">Undo</Button>, // Example action
-    });
-    // Placeholder - redirect or update UI state after ordering
+    setIsOrdering(true);
+
+    const orderData: Omit<Order, 'id'> = {
+        userId: user.id,
+        userName: user.name || 'Unknown User',
+        items: [{
+            itemId: dailyMeal.id, // Use daily meal ID (date string) as reference
+            name: dailyMeal.name,
+            price: dailyMeal.price, // USD price
+            quantity: 1,
+        }],
+        total: dailyMeal.price, // Total in USD
+        status: 'Pending',
+        orderTimestamp: serverTimestamp(),
+        // No notes or preferred time for quick daily meal order
+    };
+
+    try {
+        // Add order to Firestore
+        const orderRef = await addDoc(collection(db, 'orders'), orderData);
+        console.log("Daily meal order placed successfully:", orderRef.id);
+
+        // Note: Stock management for daily meals is tricky. If it's made in batches,
+        // you might not decrement stock from 'menuItems'. If it uses ingredients,
+        // that's more complex inventory management. For simplicity, we omit stock update here.
+
+        toast({
+          title: `Ordered ${dailyMeal.name}!`,
+          description: `Added ${displayCurrencyDual(dailyMeal.price)} to your bill.`,
+        });
+        // Optional: Redirect to order history or show confirmation inline
+        router.push('/order-history');
+
+    } catch (error: any) {
+        console.error("Error ordering daily meal:", error);
+        toast({
+          variant: "destructive",
+          title: "Order Failed",
+          description: error.message || "Could not place the order. Please try again.",
+        });
+    } finally {
+        setIsOrdering(false);
+    }
   };
 
   return (
@@ -112,7 +145,10 @@ export default function ClientDashboardPage() {
               <>
                 <h3 className="text-lg font-semibold">{dailyMeal.name}</h3>
                 <p className="text-sm text-muted-foreground">{dailyMeal.description}</p>
-                <p className="text-lg font-bold text-primary">${dailyMeal.price.toFixed(2)}</p>
+                 <p className="text-lg font-bold text-primary flex items-center gap-1">
+                     <DollarSign className="h-5 w-5" />
+                     {displayCurrencyDual(dailyMeal.price)}
+                 </p>
               </>
             ) : (
                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
@@ -124,8 +160,14 @@ export default function ClientDashboardPage() {
           </CardContent>
           {dailyMeal && !isLoading && (
             <CardFooter>
-              <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" onClick={handleOrderDailyMeal}>
-                <Check className="mr-2 h-4 w-4" /> Count Me In!
+              <Button
+                 className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
+                 onClick={handleOrderDailyMeal}
+                 disabled={isOrdering || authLoading || !user}
+                 title={!user ? "Please log in to order" : ""}
+               >
+                {isOrdering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+                {isOrdering ? 'Ordering...' : 'Count Me In!'}
               </Button>
             </CardFooter>
           )}
@@ -144,7 +186,6 @@ export default function ClientDashboardPage() {
             </CardTitle>
             <CardDescription>Need something specific? Place a custom order.</CardDescription>
           </CardHeader>
-           {/* Adjusted height and content for consistency */}
            <CardContent className="flex items-center justify-center h-[160px]">
             <p className="text-muted-foreground text-center">Browse the menu to add items.</p>
           </CardContent>
@@ -165,7 +206,6 @@ export default function ClientDashboardPage() {
              </CardTitle>
              <CardDescription>See all available items, including drinks and desserts.</CardDescription>
            </CardHeader>
-           {/* Adjusted height and content for consistency */}
            <CardContent className="flex items-center justify-center h-[160px]">
              <p className="text-muted-foreground text-center">Explore all categories.</p>
            </CardContent>
@@ -181,4 +221,3 @@ export default function ClientDashboardPage() {
     </div>
   );
 }
-
