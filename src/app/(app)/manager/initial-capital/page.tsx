@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DollarSign, Plus, Trash2, Package, ArrowLeft, Loader2, AlertCircle } from "lucide-react";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -18,7 +18,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
-import { 
+import {
   Form,
   FormControl,
   FormDescription,
@@ -78,12 +78,12 @@ export default function InitialCapitalPage() {
       const capitalCollection = collection(db, 'initialCapital');
       const q = query(capitalCollection, orderBy('dateAdded', 'desc')); // Sort by date added
       const capitalSnapshot = await getDocs(q);
-      
+
       const items: CapitalItem[] = [];
       capitalSnapshot.forEach(doc => {
         items.push({ id: doc.id, ...doc.data() } as CapitalItem);
       });
-      
+
       setCapitalItems(items);
     } catch (err) {
       console.error("Error fetching capital items:", err);
@@ -109,7 +109,7 @@ export default function InitialCapitalPage() {
     try {
       // Calculate total cost
       const totalCost = values.quantity * values.pricePerUnit;
-      
+
       // Prepare data for Firestore
       const dataToSave = {
         itemName: values.itemName,
@@ -118,10 +118,10 @@ export default function InitialCapitalPage() {
         totalCost: totalCost,
         dateAdded: serverTimestamp(), // Use server timestamp
       };
-      
+
       // Add to initialCapital collection in Firestore
       const docRef = await addDoc(collection(db, 'initialCapital'), dataToSave);
-      
+
       // *** NOTE: Logic to add to a separate 'stock' collection is removed.
       // Stock is managed via the 'menuItems' collection in other parts of the app.
       // This avoids potential data duplication/sync issues.
@@ -131,7 +131,7 @@ export default function InitialCapitalPage() {
         title: "Item added successfully",
         description: `${values.itemName} has been added to initial capital.`,
       });
-      
+
       // Reset form, close dialog, and refresh data
       form.reset();
       setDialogOpen(false);
@@ -158,17 +158,17 @@ export default function InitialCapitalPage() {
     try {
       const itemRef = doc(db, 'initialCapital', itemId);
       await deleteDoc(itemRef);
-      
+
       toast({
         title: "Item deleted",
         description: `${itemName} has been removed from initial capital records.`,
       });
-      
+
       // Update local state immediately
       setCapitalItems(prevItems => prevItems.filter(item => item.id !== itemId));
-      
+
       // No need to call fetchCapitalItems() here as we updated local state
-      
+
     } catch (err) {
       console.error("Error deleting item:", err);
       toast({
@@ -287,9 +287,9 @@ export default function InitialCapitalPage() {
                         <FormItem>
                           <FormLabel>Quantity</FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number" 
-                              placeholder="e.g., 10" 
+                            <Input
+                              type="number"
+                              placeholder="e.g., 10"
                               min="1"
                               {...field}
                               onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
@@ -306,9 +306,9 @@ export default function InitialCapitalPage() {
                         <FormItem>
                           <FormLabel>Price Per Unit (USD)</FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number" 
-                              placeholder="e.g., 5.50" 
+                            <Input
+                              type="number"
+                              placeholder="e.g., 5.50"
                               step="0.01"
                               min="0.01"
                               {...field}
@@ -353,7 +353,7 @@ export default function InitialCapitalPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : null}
-          
+
           {capitalItems.length === 0 && !isLoading ? (
             <div className="text-center py-8 text-muted-foreground">
               <Package className="mx-auto h-12 w-12 mb-4 opacity-50" />
@@ -375,24 +375,22 @@ export default function InitialCapitalPage() {
                 </TableHeader>
                 <TableBody>
                   {capitalItems.map((item) => (
+                    // Ensure no extra whitespace within TableRow
                     <TableRow key={item.id}>
                       <TableCell className="font-medium">{item.itemName}</TableCell>
                       <TableCell>{item.quantity}</TableCell>
                       <TableCell>{displayCurrencyDual(item.pricePerUnit).split(' / ')[0]}</TableCell> {/* Show only USD price per unit */}
                       <TableCell>{displayCurrencyDual(item.totalCost)}</TableCell>
-                      <TableCell>
-                        {item.dateAdded ? item.dateAdded.toDate().toLocaleDateString() : 'N/A'}
-                      </TableCell>
+                      <TableCell>{item.dateAdded ? item.dateAdded.toDate().toLocaleDateString() : 'N/A'}</TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={() => deleteCapitalItem(item.id, item.itemName)}
                           disabled={isLoading} // Disable delete while another operation is in progress
                           aria-label={`Delete ${item.itemName}`}
                           className="h-8 w-8"
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                        ><Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </TableCell>
                     </TableRow>
