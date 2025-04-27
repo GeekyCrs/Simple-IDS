@@ -1,54 +1,51 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, FileText, Package, BookOpen, UtensilsCrossed, Settings, DollarSign, Loader2 } from "lucide-react"; // Added Loader2
+import { Users, FileText, Package, BookOpen, UtensilsCrossed, Settings, DollarSign, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, TooltipProps } from "recharts"; // Added TooltipProps
-import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, getCountFromServer, query, where, Timestamp, sum, aggregate } from 'firebase/firestore'; // Firestore imports
-import { startOfMonth, endOfMonth, format } from 'date-fns';
-import { displayCurrencyDual } from '@/lib/utils'; // Import currency utility
-import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
-
-// Removed placeholder data
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, TooltipProps } from "recharts";
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, where, Timestamp, orderBy, getCountFromServer } from 'firebase/firestore';
+import { startOfMonth, endOfMonth, format, subMonths, startOfYear } from 'date-fns';
+import { displayCurrencyDual } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // Define state for fetched stats
 interface DashboardStats {
   totalUsers: number;
-  // pendingBills: number; // Removed as per previous request logic change
-  // lowStockItems: number; // Requires fetching stock data, omitting for now
+  pendingBills: number;
+  lowStockItems: number;
   totalRevenueMonthUsd: number;
-  // ordersToday: number; // Requires fetching order data, omitting for now
+  initialCapitalUsd: number;
+  netProfitUsd: number;
+  monthlyRevenue: { month: string; sales: number }[];
 }
 
 // Type for recharts tooltip payload
 import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 
-
 // Custom tooltip component with dual currency
 function CustomTooltip({ active, payload, label }: TooltipProps<ValueType, NameType>) {
   if (active && payload && payload.length) {
-    const data = payload[0].payload; // Access the data object for the hovered bar
-    const usdValue = payload[0].value as number; // Assuming value is USD
+    const data = payload[0].payload;
+    const usdValue = payload[0].value as number;
 
     return (
       <div className="rounded-lg border bg-background p-2 shadow-md text-xs">
-        <p className="font-bold mb-1">{label}</p> {/* Month */}
-         <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-primary" />
-            <span className="font-medium">
-                Sales: {displayCurrencyDual(usdValue)}
-            </span>
-         </div>
+        <p className="font-bold mb-1">{label}</p>
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <span className="font-medium">
+            Sales: {displayCurrencyDual(usdValue)}
+          </span>
+        </div>
       </div>
     );
   }
   return null;
 }
-
 
 // Simple chart container component
 function ChartContainer({
@@ -67,61 +64,114 @@ function ChartContainer({
 
 export default function ManagerDashboardPage() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  // const [salesData, setSalesData] = useState(monthlySalesData); // TODO: Fetch real sales data
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-   // TODO: Placeholder sales data - replace with fetched data
-   const placeholderSalesData = [
-     { month: "Jan", sales: 1200 }, { month: "Feb", sales: 1500 }, { month: "Mar", sales: 1350 },
-     { month: "Apr", sales: 1600 }, { month: "May", sales: 1450 }, { month: "Jun", sales: 1850 },
-   ];
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        // Fetch Total Users
+        // 1. Fetch Total Users
         const usersCollection = collection(db, 'users');
-        // Optionally filter roles: const qUsers = query(usersCollection, where('role', '==', 'client'));
         const usersSnapshot = await getCountFromServer(usersCollection);
         const totalUsers = usersSnapshot.data().count;
 
-        // Fetch Total Revenue for Current Month
+        // 2. Fetch Pending Bills (users who haven't settled their bills)
+        // Query users with billPaid = false
+        const pendingBillsQuery = query(usersCollection, where('billPaid', '==', false));
+        const pendingBillsSnapshot = await getDocs(pendingBillsQuery);
+        const pendingBillsCount = pendingBillsSnapshot.size;
+
+        // 3. Fetch Low Stock Items (items with quantity < 10)
+        const stockCollection = collection(db, 'stock');
+        const lowStockQuery = query(stockCollection, where('quantity', '<', 10));
+        const lowStockSnapshot = await getDocs(lowStockQuery);
+        const lowStockItemsCount = lowStockSnapshot.size;
+
+        // 4. Calculate Initial Capital (sum of all purchased items)
+        const capitalCollection = collection(db, 'initialCapital');
+        const capitalSnapshot = await getDocs(capitalCollection);
+        let initialCapitalUsd = 0;
+        
+        capitalSnapshot.forEach(doc => {
+          const capitalData = doc.data();
+          if (capitalData.totalCost && typeof capitalData.totalCost === 'number') {
+            initialCapitalUsd += capitalData.totalCost;
+          }
+        });
+
+        // 5. Calculate Total Revenue for Current Month
         const now = new Date();
         const monthStart = startOfMonth(now);
         const monthEnd = endOfMonth(now);
+        
         const ordersCollection = collection(db, 'orders');
-        // Query orders within the current month (consider adding status filter e.g., 'Completed')
         const revenueQuery = query(
           ordersCollection,
           where('orderTimestamp', '>=', Timestamp.fromDate(monthStart)),
           where('orderTimestamp', '<=', Timestamp.fromDate(monthEnd))
-          // where('status', '==', 'Completed') // Uncomment if only completed orders count
         );
-
-        // Use Firestore aggregation to sum the 'total' field
-        const revenueSnapshot = await aggregate(revenueQuery, {
-            totalRevenue: sum('total')
+        
+        const ordersSnapshot = await getDocs(revenueQuery);
+        let totalRevenueMonthUsd = 0;
+        
+        ordersSnapshot.forEach(doc => {
+          const orderData = doc.data();
+          if (orderData.total && typeof orderData.total === 'number') {
+            totalRevenueMonthUsd += orderData.total;
+          }
         });
-        const totalRevenueMonthUsd = revenueSnapshot.data().totalRevenue || 0;
+        
+        // Calculate net profit
+        const netProfitUsd = totalRevenueMonthUsd - initialCapitalUsd;
 
+        // 6. Generate Monthly Revenue Data for Chart (last 6 months)
+        const monthlySalesData = [];
+        const currentDate = new Date();
+        
+        for (let i = 5; i >= 0; i--) {
+          const targetMonth = subMonths(currentDate, i);
+          const monthStartDate = startOfMonth(targetMonth);
+          const monthEndDate = endOfMonth(targetMonth);
+          
+          const monthQuery = query(
+            ordersCollection,
+            where('orderTimestamp', '>=', Timestamp.fromDate(monthStartDate)),
+            where('orderTimestamp', '<=', Timestamp.fromDate(monthEndDate))
+          );
+          
+          const monthOrdersSnapshot = await getDocs(monthQuery);
+          let monthRevenue = 0;
+          
+          monthOrdersSnapshot.forEach(doc => {
+            const orderData = doc.data();
+            if (orderData.total && typeof orderData.total === 'number') {
+              monthRevenue += orderData.total;
+            }
+          });
+          
+          monthlySalesData.push({
+            month: format(targetMonth, 'MMM'),
+            sales: monthRevenue
+          });
+        }
 
-        // TODO: Fetch Low Stock Items Count (requires iterating through menuItems)
-        // TODO: Fetch Orders Today Count
-
+        // Set all the stats
         setDashboardStats({
-          totalUsers: totalUsers,
-          totalRevenueMonthUsd: totalRevenueMonthUsd,
+          totalUsers,
+          pendingBills: pendingBillsCount,
+          lowStockItems: lowStockItemsCount,
+          totalRevenueMonthUsd,
+          initialCapitalUsd,
+          netProfitUsd,
+          monthlyRevenue: monthlySalesData
         });
-
-        // TODO: Fetch real monthly sales data for the chart
 
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
         setError("Failed to load dashboard data. Please try again.");
-        setDashboardStats(null); // Clear stats on error
+        setDashboardStats(null);
       } finally {
         setIsLoading(false);
       }
@@ -132,28 +182,43 @@ export default function ManagerDashboardPage() {
 
   // Display loading state
   if (isLoading) {
-     return (
-         <div className="container mx-auto py-8">
-            <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Settings /> Manager Dashboard</h1>
-             {/* Skeleton for Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <Skeleton className="h-28" />
-                <Skeleton className="h-28" />
-                <Skeleton className="h-28" />
-                <Skeleton className="h-28" />
-            </div>
-             {/* Skeleton for Quick Links & Chart */}
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                 <Skeleton className="h-96 lg:col-span-1" />
-                 <Skeleton className="h-96 lg:col-span-2" />
-             </div>
-         </div>
-     );
-   }
+    return (
+      <div className="container mx-auto py-8">
+        <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Settings /> Manager Dashboard</h1>
+        {/* Skeleton for Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <Skeleton className="h-28" />
+          <Skeleton className="h-28" />
+          <Skeleton className="h-28" />
+          <Skeleton className="h-28" />
+        </div>
+        {/* Skeleton for Quick Links & Chart */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Skeleton className="h-96 lg:col-span-1" />
+          <Skeleton className="h-96 lg:col-span-2" />
+        </div>
+      </div>
+    );
+  }
 
   // Display error message
   if (error) {
-     return <div className="container mx-auto py-8 text-center text-destructive"><p>{error}</p></div>;
+    return (
+      <div className="container mx-auto py-8">
+        <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Settings /> Manager Dashboard</h1>
+        <Card className="shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center justify-center text-center p-4">
+              <AlertCircle className="h-8 w-8 text-destructive mb-2" />
+              <p className="text-destructive">{error}</p>
+              <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   // Display dashboard when data is loaded
@@ -173,94 +238,128 @@ export default function ManagerDashboardPage() {
             <p className="text-xs text-muted-foreground">Registered canteen users</p>
           </CardContent>
         </Card>
-         {/* Removed Pending Bills card */}
-         {/* Removed Low Stock Items card (requires more logic) */}
-          <Card className="shadow-md col-span-1 sm:col-span-2 lg:col-span-1"> {/* Adjust span */}
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Revenue ({format(new Date(), 'MMMM')})</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold">{displayCurrencyDual(dashboardStats?.totalRevenueMonthUsd ?? 0)}</div>
-              <p className="text-xs text-muted-foreground">Total value of orders this month</p>
-            </CardContent>
-         </Card>
-         {/* Placeholder for other potential cards */}
-         <Card className="shadow-md hidden lg:block"> {/* Hide on smaller screens if needed */}
-             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Placeholder Stat</CardTitle>
-                {/* Icon */}
-             </CardHeader>
-             <CardContent>
-                <div className="text-2xl font-bold">...</div>
-                <p className="text-xs text-muted-foreground">...</p>
-             </CardContent>
-         </Card>
+        
+        <Card className="shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pending Bills</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{dashboardStats?.pendingBills ?? 'N/A'}</div>
+            <p className="text-xs text-muted-foreground">Users with unpaid bills</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
+            <Package className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{dashboardStats?.lowStockItems ?? 'N/A'}</div>
+            <p className="text-xs text-muted-foreground">Items needing reorder</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Revenue ({format(new Date(), 'MMMM')})</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold">{displayCurrencyDual(dashboardStats?.totalRevenueMonthUsd ?? 0)}</div>
+            <p className="text-xs text-muted-foreground">Total value of orders</p>
+          </CardContent>
+        </Card>
       </div>
 
-       {/* Quick Links & Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-         {/* Quick Links */}
+      {/* Financial Overview & Management Actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Financial Overview */}
         <Card className="shadow-lg lg:col-span-1">
-           <CardHeader>
-             <CardTitle>Management Actions</CardTitle>
-             <CardDescription>Quick access to management tasks.</CardDescription>
-           </CardHeader>
-           <CardContent className="space-y-3">
-             <Link href="/manager/manage-users" passHref>
-                <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
-                   <Users /> Manage Users
-                </Button>
-             </Link>
-             <Link href="/manager/all-bills" passHref>
-                <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
-                   <FileText /> View All Bills
-                </Button>
-             </Link>
-             <Link href="/manager/manage-menu" passHref>
-                <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
-                   <BookOpen /> Manage Menu
-                </Button>
-             </Link>
-             <Link href="/manager/manage-stock" passHref>
-                <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
-                   <Package /> Manage Stock
-                </Button>
-             </Link>
-              <Link href="/manager/settings" passHref>
-                 <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
-                    <Settings /> Settings
-                 </Button>
-              </Link>
-             <Link href="/chef/orders-queue" passHref>
-                <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground hover:bg-secondary">
-                   <UtensilsCrossed /> View Orders Queue
-                </Button>
-             </Link>
-           </CardContent>
-         </Card>
+          <CardHeader>
+            <CardTitle>Financial Overview</CardTitle>
+            <CardDescription>Summary of current finances</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Initial Capital:</span>
+              <span className="font-medium">{displayCurrencyDual(dashboardStats?.initialCapitalUsd ?? 0)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Total Revenue:</span>
+              <span className="font-medium">{displayCurrencyDual(dashboardStats?.totalRevenueMonthUsd ?? 0)}</span>
+            </div>
+            <div className="h-px bg-muted my-2" />
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">Net Profit:</span>
+              <span className={`font-bold ${(dashboardStats?.netProfitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {displayCurrencyDual(dashboardStats?.netProfitUsd ?? 0)}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Sales Chart */}
+        {/* Management Actions */}
         <Card className="shadow-lg lg:col-span-2">
-           <CardHeader>
-             <CardTitle>Monthly Sales Overview (Demo)</CardTitle>
-             <CardDescription>Total sales revenue per month (USD/LBP).</CardDescription>
-           </CardHeader>
-           <CardContent>
-             <ChartContainer className="h-[300px]">
-               <ResponsiveContainer width="100%" height="100%">
-                 <BarChart data={placeholderSalesData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                   <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} />
-                   <YAxis tickLine={false} axisLine={false} tickMargin={10} fontSize={12} tickFormatter={(value) => `$${value}`} />
-                    {/* Use custom tooltip for dual currency */}
-                   <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--muted))' }} />
-                   <Bar dataKey="sales" fill="var(--color-sales)" radius={[4, 4, 0, 0]} />
-                 </BarChart>
-               </ResponsiveContainer>
-             </ChartContainer>
-           </CardContent>
-         </Card>
+          <CardHeader>
+            <CardTitle>Management Actions</CardTitle>
+            <CardDescription>Quick access to management tasks.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Link href="/manager/manage-users" passHref>
+              <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
+                <Users /> Manage Users
+              </Button>
+            </Link>
+            <Link href="/manager/all-bills" passHref>
+              <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
+                <FileText /> View All Bills
+              </Button>
+            </Link>
+            <Link href="/manager/manage-menu" passHref>
+              <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
+                <BookOpen /> Manage Menu
+              </Button>
+            </Link>
+            <Link href="/manager/manage-stock" passHref>
+              <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
+                <Package /> Manage Stock
+              </Button>
+            </Link>
+            <Link href="/manager/initial-capital" passHref>
+              <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
+                <DollarSign /> Initial Capital
+              </Button>
+            </Link>
+            <Link href="/chef/orders-queue" passHref>
+              <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground hover:bg-secondary">
+                <UtensilsCrossed /> View Orders Queue
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Sales Chart */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle>Monthly Sales Overview</CardTitle>
+          <CardDescription>Total sales revenue per month (USD/LBP).</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dashboardStats?.monthlyRevenue || []} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} />
+                <YAxis tickLine={false} axisLine={false} tickMargin={10} fontSize={12} tickFormatter={(value) => `$${value}`} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--muted))' }} />
+                <Bar dataKey="sales" fill="var(--color-sales)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+        </CardContent>
+      </Card>
     </div>
   );
 }

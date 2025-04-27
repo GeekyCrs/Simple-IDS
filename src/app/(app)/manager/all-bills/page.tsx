@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { FileText, Search, User, Eye, DollarSign, Loader2 } from "lucide-react"; // Added icons
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, getDocs, query, orderBy, where, Timestamp, aggregate, sum } from 'firebase/firestore';
+// Removed aggregate and sum, will calculate manually
+import { collection, getDocs, query, orderBy, where, Timestamp } from 'firebase/firestore';
 import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 import { useRouter } from 'next/navigation'; // Import useRouter for navigation
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // Import Avatar
@@ -64,7 +65,7 @@ export default function AllBillsPage() {
           } as User);
         });
 
-        // 2. Fetch and aggregate bills for each user for the current month
+        // 2. Fetch orders for each user for the current month and sum manually
         const ordersCollection = collection(db, 'orders');
         for (const user of fetchedUsers) {
           const userOrdersQuery = query(
@@ -75,10 +76,17 @@ export default function AllBillsPage() {
             // where('status', '==', 'Completed') // Optional: filter by status
           );
 
-          const billSnapshot = await aggregate(userOrdersQuery, {
-            totalBill: sum('total') // Ensure 'total' field exists and is numeric
+          // Fetch all orders for the user in the current month
+          const userOrdersSnapshot = await getDocs(userOrdersQuery);
+          let userTotalUsd = 0;
+          userOrdersSnapshot.forEach(doc => {
+              const orderData = doc.data();
+              // Ensure total is a valid number before adding
+              if (orderData.total && typeof orderData.total === 'number') {
+                  userTotalUsd += orderData.total;
+              }
           });
-          user.currentMonthTotalUsd = billSnapshot.data().totalBill || 0;
+          user.currentMonthTotalUsd = userTotalUsd;
         }
 
         setAllUsersWithBills(fetchedUsers);

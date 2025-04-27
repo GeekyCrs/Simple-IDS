@@ -1,16 +1,15 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
-import { FileText, PackageSearch, DollarSign } from "lucide-react"; // Added DollarSign
 import { format, startOfMonth, endOfMonth } from 'date-fns'; // For date formatting
 import { useAuth } from '@/lib/auth-context'; // Import useAuth to get current user
 import { db } from '@/lib/firebase'; // Import Firestore instance
 import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore'; // Firestore imports
 import type { Order, OrderItemDetail } from '@/types/order'; // Import Order type
 import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
+import { FileText, PackageSearch, DollarSign } from "lucide-react";
 import { displayCurrencyDual } from '@/lib/utils'; // Import currency utility
 
 export default function MyBillPage() {
@@ -37,7 +36,7 @@ export default function MyBillPage() {
       return;
     }
 
-    // Fetch orders if user is logged in
+    // Fetch orders if user is logged in - ONLY FOR THE CURRENT USER
     const fetchUserOrdersForMonth = async () => {
       setIsLoading(true);
       setError(null); // Clear previous errors
@@ -46,23 +45,34 @@ export default function MyBillPage() {
       const monthEnd = endOfMonth(now);
 
       try {
+        // Create a query that filters orders to only show the current user's orders
         const ordersCollection = collection(db, 'orders');
         const q = query(
           ordersCollection,
-          where('userId', '==', user.id),
+          where('userId', '==', user.id), // Filter by current user ID only
           where('orderTimestamp', '>=', Timestamp.fromDate(monthStart)),
           where('orderTimestamp', '<=', Timestamp.fromDate(monthEnd)),
           orderBy('orderTimestamp', 'desc') // Show most recent first
         );
+        
         const querySnapshot = await getDocs(q);
 
         const fetchedOrders: Order[] = [];
         let total = 0;
+        
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          const orderTimestamp = data.orderTimestamp instanceof Timestamp
-            ? data.orderTimestamp.toDate().toISOString()
-            : data.orderTimestamp || new Date().toISOString();
+          // Convert Firebase Timestamp to Date safely
+          let orderDate: Date;
+          if (data.orderTimestamp instanceof Timestamp) {
+            orderDate = data.orderTimestamp.toDate();
+          } else if (data.orderTimestamp instanceof Date) {
+            orderDate = data.orderTimestamp;
+          } else {
+            orderDate = new Date(); // Fallback to current date
+          }
+          
+          const orderTimestamp = orderDate.toISOString();
 
           const order = {
             id: doc.id,
@@ -144,7 +154,7 @@ export default function MyBillPage() {
               <TableBody>
                 {orders.map((order) => (
                   <TableRow key={order.id}>
-                    <TableCell>{format(new Date(order.orderTimestamp), 'MMM d, HH:mm')}</TableCell>
+                    <TableCell>{typeof order.orderTimestamp === 'string' ? format(new Date(order.orderTimestamp), 'MMM d, HH:mm') : 'Invalid Date'}</TableCell>
                     <TableCell>
                       <ul className="list-disc list-inside text-sm">
                         {order.items.map((item, index) => (
@@ -172,7 +182,6 @@ export default function MyBillPage() {
                 <DollarSign className="h-5 w-5" />
                 {displayCurrencyDual(currentMonthTotalUsd)}
             </p>
-            {/* Maybe add payment status info here later if needed */}
           </div>
         </CardFooter>
       </Card>
