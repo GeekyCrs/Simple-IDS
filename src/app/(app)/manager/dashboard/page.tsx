@@ -1,9 +1,10 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, FileText, Package, BookOpen, UtensilsCrossed, Settings, DollarSign, Loader2, AlertCircle } from "lucide-react";
+import { Users, FileText, Package, BookOpen, UtensilsCrossed, DollarSign, Loader2, AlertCircle, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, TooltipProps } from "recharts";
 import { db } from '@/lib/firebase';
@@ -83,17 +84,18 @@ export default function ManagerDashboardPage() {
         const pendingBillsSnapshot = await getDocs(pendingBillsQuery);
         const pendingBillsCount = pendingBillsSnapshot.size;
 
-        // 3. Fetch Low Stock Items (items with quantity < 10)
-        const stockCollection = collection(db, 'stock');
-        const lowStockQuery = query(stockCollection, where('quantity', '<', 10));
+        // 3. Fetch Low Stock Items (items with quantity < 10) - Assuming from menuItems
+        const menuItemsCollection = collection(db, 'menuItems');
+        const lowStockQuery = query(menuItemsCollection, where('quantityInStock', '<', 10));
         const lowStockSnapshot = await getDocs(lowStockQuery);
         const lowStockItemsCount = lowStockSnapshot.size;
+
 
         // 4. Calculate Initial Capital (sum of all purchased items)
         const capitalCollection = collection(db, 'initialCapital');
         const capitalSnapshot = await getDocs(capitalCollection);
         let initialCapitalUsd = 0;
-        
+
         capitalSnapshot.forEach(doc => {
           const capitalData = doc.data();
           if (capitalData.totalCost && typeof capitalData.totalCost === 'number') {
@@ -105,52 +107,52 @@ export default function ManagerDashboardPage() {
         const now = new Date();
         const monthStart = startOfMonth(now);
         const monthEnd = endOfMonth(now);
-        
+
         const ordersCollection = collection(db, 'orders');
         const revenueQuery = query(
           ordersCollection,
           where('orderTimestamp', '>=', Timestamp.fromDate(monthStart)),
           where('orderTimestamp', '<=', Timestamp.fromDate(monthEnd))
         );
-        
+
         const ordersSnapshot = await getDocs(revenueQuery);
         let totalRevenueMonthUsd = 0;
-        
+
         ordersSnapshot.forEach(doc => {
           const orderData = doc.data();
           if (orderData.total && typeof orderData.total === 'number') {
             totalRevenueMonthUsd += orderData.total;
           }
         });
-        
+
         // Calculate net profit
         const netProfitUsd = totalRevenueMonthUsd - initialCapitalUsd;
 
         // 6. Generate Monthly Revenue Data for Chart (last 6 months)
         const monthlySalesData = [];
         const currentDate = new Date();
-        
+
         for (let i = 5; i >= 0; i--) {
           const targetMonth = subMonths(currentDate, i);
           const monthStartDate = startOfMonth(targetMonth);
           const monthEndDate = endOfMonth(targetMonth);
-          
+
           const monthQuery = query(
             ordersCollection,
             where('orderTimestamp', '>=', Timestamp.fromDate(monthStartDate)),
             where('orderTimestamp', '<=', Timestamp.fromDate(monthEndDate))
           );
-          
+
           const monthOrdersSnapshot = await getDocs(monthQuery);
           let monthRevenue = 0;
-          
+
           monthOrdersSnapshot.forEach(doc => {
             const orderData = doc.data();
             if (orderData.total && typeof orderData.total === 'number') {
               monthRevenue += orderData.total;
             }
           });
-          
+
           monthlySalesData.push({
             month: format(targetMonth, 'MMM'),
             sales: monthRevenue
@@ -184,7 +186,7 @@ export default function ManagerDashboardPage() {
   if (isLoading) {
     return (
       <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Settings /> Manager Dashboard</h1>
+        <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><LayoutDashboard /> Manager Dashboard</h1>
         {/* Skeleton for Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Skeleton className="h-28" />
@@ -205,7 +207,7 @@ export default function ManagerDashboardPage() {
   if (error) {
     return (
       <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Settings /> Manager Dashboard</h1>
+        <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><LayoutDashboard /> Manager Dashboard</h1>
         <Card className="shadow-md">
           <CardContent className="pt-6">
             <div className="flex flex-col items-center justify-center text-center p-4">
@@ -224,7 +226,7 @@ export default function ManagerDashboardPage() {
   // Display dashboard when data is loaded
   return (
     <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Settings /> Manager Dashboard</h1>
+      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><LayoutDashboard /> Manager Dashboard</h1>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -238,7 +240,7 @@ export default function ManagerDashboardPage() {
             <p className="text-xs text-muted-foreground">Registered canteen users</p>
           </CardContent>
         </Card>
-        
+
         <Card className="shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pending Bills</CardTitle>
@@ -249,7 +251,7 @@ export default function ManagerDashboardPage() {
             <p className="text-xs text-muted-foreground">Users with unpaid bills</p>
           </CardContent>
         </Card>
-        
+
         <Card className="shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
@@ -260,7 +262,7 @@ export default function ManagerDashboardPage() {
             <p className="text-xs text-muted-foreground">Items needing reorder</p>
           </CardContent>
         </Card>
-        
+
         <Card className="shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Revenue ({format(new Date(), 'MMMM')})</CardTitle>
@@ -337,6 +339,7 @@ export default function ManagerDashboardPage() {
                 <UtensilsCrossed /> View Orders Queue
               </Button>
             </Link>
+            {/* Removed Settings Button */}
           </CardContent>
         </Card>
       </div>

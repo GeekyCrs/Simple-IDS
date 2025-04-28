@@ -14,7 +14,7 @@ import {
   UserCog,
   LayoutDashboard,
   DollarSign,
-  Settings, // Import Settings icon
+  Settings, // Still imported but not used in manager links
 } from 'lucide-react';
 import {
   Sidebar,
@@ -80,16 +80,16 @@ export default function AppSidebar() {
     { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed },
   ];
 
-  // Updated manager links to include Initial Capital
+  // Updated manager links - Settings removed
   const managerLinks = [
-    { href: '/manager/dashboard', label: 'Manager Dash', icon: Settings }, // Use imported Settings
+    { href: '/manager/dashboard', label: 'Manager Dash', icon: LayoutDashboard }, // Use LayoutDashboard for consistency
     { href: '/manager/initial-capital', label: 'Initial Capital', icon: DollarSign },
     { href: '/manager/manage-menu', label: 'Manage Menu', icon: BookOpen },
     { href: '/manager/manage-stock', label: 'Manage Stock', icon: Package },
     { href: '/manager/all-bills', label: 'All Bills', icon: FileText },
     { href: '/manager/manage-users', label: 'Manage Users', icon: UserCog },
     { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed }, // Keep chef path for consistency
-    { href: '/manager/settings', label: 'Settings', icon: Settings }, // Use imported Settings
+    // { href: '/manager/settings', label: 'Settings', icon: Settings }, // Removed Settings link
   ];
 
   // Determine links based on fetched role

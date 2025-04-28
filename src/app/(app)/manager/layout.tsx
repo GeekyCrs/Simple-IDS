@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -15,11 +16,12 @@ import {
   Package,
   FileText,
   UtensilsCrossed,
-  DollarSign
+  DollarSign,
+  LayoutDashboard // Import LayoutDashboard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
-import { signOut } from "@/lib/auth-utils";
+import { signOut as authSignOut } from "@/lib/auth-utils"; // Renamed import to avoid conflict
 import ProtectedRoute from "@/components/protected-route";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils"; // Import cn utility
@@ -34,21 +36,20 @@ export default function ManagerLayout({ children }: ManagerLayoutProps) {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Navigation items - ensure paths match your route structure
-  // Added Initial Capital link
+  // Navigation items - Settings removed
   const navigation = [
-    { name: "Dashboard", href: "/manager/dashboard", icon: BarChart3 },
-    { name: "Initial Capital", href: "/manager/initial-capital", icon: DollarSign }, // Added Initial Capital link
+    { name: "Dashboard", href: "/manager/dashboard", icon: LayoutDashboard }, // Use LayoutDashboard
+    { name: "Initial Capital", href: "/manager/initial-capital", icon: DollarSign },
     { name: "Manage Users", href: "/manager/manage-users", icon: Users },
     { name: "Manage Menu", href: "/manager/manage-menu", icon: BookOpen },
     { name: "Manage Stock", href: "/manager/manage-stock", icon: Package },
     { name: "All Bills", href: "/manager/all-bills", icon: FileText },
     { name: "Orders Queue", href: "/chef/orders-queue", icon: UtensilsCrossed },
-    { name: "Settings", href: "/manager/settings", icon: Settings },
+    // { name: "Settings", href: "/manager/settings", icon: Settings }, // Removed Settings link
   ];
 
   const handleSignOut = async () => {
-    const result = await signOut();
+    const result = await authSignOut(); // Use the renamed import
     if (result.success) {
       toast({
         title: "Signed out",
