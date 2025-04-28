@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -6,10 +5,9 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DollarSign, Plus, Trash2, Package, ArrowLeft, Loader2, AlertCircle } from "lucide-react";
-import {
+import { 
   Dialog,
   DialogContent,
   DialogDescription,
@@ -18,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
-import {
+import { 
   Form,
   FormControl,
   FormDescription,
@@ -27,40 +25,43 @@ import {
   FormLabel,
   FormMessage
 } from "@/components/ui/form";
-import { toast } from "@/hooks/use-toast";
-import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { useToast } from "@/hooks/use-toast";
+import { db } from '@/lib/firebase';
+import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { displayCurrencyDual } from '@/lib/utils';
 
-// Form schema for adding new capital item
+// Form validation schema
 const formSchema = z.object({
   itemName: z.string().min(2, { message: "Item name must be at least 2 characters." }),
-  quantity: z.number().min(1, { message: "Quantity must be at least 1." }).int(),
+  quantity: z.number().min(1, { message: "Quantity must be at least 1." }),
   pricePerUnit: z.number().min(0.01, { message: "Price must be greater than 0." }),
 });
 
-// Define capital item type matching Firestore structure
+// Type definition for capital items
 interface CapitalItem {
-  id: string; // Firestore document ID
+  id: string;
   itemName: string;
   quantity: number;
-  pricePerUnit: number; // USD
-  totalCost: number; // USD
-  dateAdded: Timestamp; // Firestore Timestamp
+  pricePerUnit: number;
+  totalCost: number;
+  dateAdded: Timestamp;
 }
 
 export default function InitialCapitalPage() {
+  // State management
   const [capitalItems, setCapitalItems] = useState<CapitalItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  
   const router = useRouter();
+  const { toast } = useToast();
 
-  // Setup form
+  // Form setup
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -70,72 +71,76 @@ export default function InitialCapitalPage() {
     },
   });
 
-  // Fetch capital items from Firestore
+  // Fetch all capital items from Firestore
   const fetchCapitalItems = async () => {
     setIsLoading(true);
     setError(null);
+    
     try {
       const capitalCollection = collection(db, 'initialCapital');
-      const q = query(capitalCollection, orderBy('dateAdded', 'desc')); // Sort by date added
-      const capitalSnapshot = await getDocs(q);
-
+      const capitalSnapshot = await getDocs(capitalCollection);
+      
       const items: CapitalItem[] = [];
       capitalSnapshot.forEach(doc => {
         items.push({ id: doc.id, ...doc.data() } as CapitalItem);
       });
-
+      
+      // Sort by most recent first
+      items.sort((a, b) => {
+        // Handle cases where dateAdded might be undefined
+        if (!a.dateAdded) return 1;
+        if (!b.dateAdded) return -1;
+        return b.dateAdded.toMillis() - a.dateAdded.toMillis();
+      });
+      
       setCapitalItems(items);
     } catch (err) {
       console.error("Error fetching capital items:", err);
       setError("Failed to load capital items. Please try again.");
-      toast({
-         variant: "destructive",
-         title: "Error Loading Data",
-         description: "Could not fetch initial capital records.",
-      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch data on component mount
+  // Fetch data when component mounts
   useEffect(() => {
     fetchCapitalItems();
-  }, []); // Runs once on mount
+  }, []);
 
   // Handle form submission
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
+    
     try {
       // Calculate total cost
       const totalCost = values.quantity * values.pricePerUnit;
-
-      // Prepare data for Firestore
-      const dataToSave = {
+      
+      // Add to initialCapital collection
+      await addDoc(collection(db, 'initialCapital'), {
         itemName: values.itemName,
         quantity: values.quantity,
         pricePerUnit: values.pricePerUnit,
         totalCost: totalCost,
-        dateAdded: serverTimestamp(), // Use server timestamp
-      };
-
-      // Add to initialCapital collection in Firestore
-      const docRef = await addDoc(collection(db, 'initialCapital'), dataToSave);
-
-      // *** NOTE: Logic to add to a separate 'stock' collection is removed.
-      // Stock is managed via the 'menuItems' collection in other parts of the app.
-      // This avoids potential data duplication/sync issues.
-      // If you need to track raw materials separately, reconsider the 'stock' collection logic.
-
+        dateAdded: serverTimestamp(),
+      });
+      
+      // Add to stock collection
+      await addDoc(collection(db, 'stock'), {
+        itemName: values.itemName,
+        quantity: values.quantity,
+        lastUpdated: serverTimestamp(),
+      });
+      
+      // Show success notification
       toast({
         title: "Item added successfully",
-        description: `${values.itemName} has been added to initial capital.`,
+        description: `${values.itemName} has been added to capital and stock.`,
       });
-
-      // Reset form, close dialog, and refresh data
+      
+      // Reset form and refresh data
       form.reset();
       setDialogOpen(false);
-      fetchCapitalItems(); // Refetch to show the new item
+      fetchCapitalItems();
     } catch (err) {
       console.error("Error adding item:", err);
       toast({
@@ -148,46 +153,43 @@ export default function InitialCapitalPage() {
     }
   };
 
-  // Delete capital item from Firestore
-  const deleteCapitalItem = async (itemId: string, itemName: string) => {
-    // Add confirmation dialog for safety
-    const confirmDelete = window.confirm(`Are you sure you want to delete "${itemName}" from the initial capital records? This action cannot be undone.`);
-    if (!confirmDelete) return;
-
-    setIsLoading(true); // Use isLoading to disable buttons during delete
-    try {
-      const itemRef = doc(db, 'initialCapital', itemId);
-      await deleteDoc(itemRef);
-
-      toast({
-        title: "Item deleted",
-        description: `${itemName} has been removed from initial capital records.`,
-      });
-
-      // Update local state immediately
-      setCapitalItems(prevItems => prevItems.filter(item => item.id !== itemId));
-
-      // No need to call fetchCapitalItems() here as we updated local state
-
-    } catch (err) {
-      console.error("Error deleting item:", err);
-      toast({
-        title: "Error",
-        description: "Failed to delete item. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
+  // Delete a capital item
+  const deleteCapitalItem = async (id: string, itemName: string) => {
+    // Get user confirmation
+    const confirmDelete = window.confirm(`Are you sure you want to delete ${itemName}? This won't remove the item from stock.`);
+    
+    if (confirmDelete) {
+      try {
+        // Create a reference to the document
+        const itemDocRef = doc(db, 'initialCapital', id);
+        
+        // Delete the document
+        await deleteDoc(itemDocRef);
+        
+        // Show success notification
+        toast({
+          title: "Item deleted",
+          description: `${itemName} has been removed from initial capital.`,
+        });
+        
+        // Refresh the list
+        fetchCapitalItems();
+      } catch (err) {
+        console.error("Error deleting item:", err);
+        toast({
+          title: "Error",
+          description: "Failed to delete item. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
-  // Calculate total capital from fetched items
+  // Calculate total capital
   const totalCapital = capitalItems.reduce((sum, item) => sum + item.totalCost, 0);
 
-  // --- Render Logic ---
-
   // Loading state
-  if (isLoading && capitalItems.length === 0) { // Show loader only on initial load
+  if (isLoading) {
     return (
       <div className="container mx-auto py-8">
         <div className="flex items-center gap-2 mb-6">
@@ -232,11 +234,11 @@ export default function InitialCapitalPage() {
     );
   }
 
-  // Main content render
+  // Main content
   return (
     <div className="container mx-auto py-8">
       <div className="flex items-center gap-2 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="Go back">
+        <Button variant="ghost" size="icon" onClick={() => router.back()}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -262,7 +264,7 @@ export default function InitialCapitalPage() {
                 <DialogHeader>
                   <DialogTitle>Add New Capital Item</DialogTitle>
                   <DialogDescription>
-                    Record items purchased as initial capital investment.
+                    Add items purchased as initial capital. These will be added to stock.
                   </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
@@ -274,7 +276,7 @@ export default function InitialCapitalPage() {
                         <FormItem>
                           <FormLabel>Item Name</FormLabel>
                           <FormControl>
-                            <Input placeholder="e.g., Rice Bag, Cooking Oil" {...field} />
+                            <Input placeholder="e.g., Rice, Flour, Meat" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -287,9 +289,9 @@ export default function InitialCapitalPage() {
                         <FormItem>
                           <FormLabel>Quantity</FormLabel>
                           <FormControl>
-                            <Input
-                              type="number"
-                              placeholder="e.g., 10"
+                            <Input 
+                              type="number" 
+                              placeholder="Quantity" 
                               min="1"
                               {...field}
                               onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
@@ -306,9 +308,9 @@ export default function InitialCapitalPage() {
                         <FormItem>
                           <FormLabel>Price Per Unit (USD)</FormLabel>
                           <FormControl>
-                            <Input
-                              type="number"
-                              placeholder="e.g., 5.50"
+                            <Input 
+                              type="number" 
+                              placeholder="0.00" 
                               step="0.01"
                               min="0.01"
                               {...field}
@@ -316,19 +318,19 @@ export default function InitialCapitalPage() {
                             />
                           </FormControl>
                           <FormDescription>
-                            Total Cost: {displayCurrencyDual((form.watch('quantity') || 0) * (form.watch('pricePerUnit') || 0))}
+                            Total: {displayCurrencyDual((form.watch('quantity') || 0) * (form.watch('pricePerUnit') || 0))}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
                     <DialogFooter>
-                      <Button variant="outline" type="button" onClick={() => setDialogOpen(false)} disabled={isSubmitting}>
+                      <Button variant="outline" type="button" onClick={() => setDialogOpen(false)}>
                         Cancel
                       </Button>
                       <Button type="submit" disabled={isSubmitting}>
                         {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {isSubmitting ? 'Adding...' : 'Add Item'}
+                        Add Item
                       </Button>
                     </DialogFooter>
                   </form>
@@ -342,23 +344,17 @@ export default function InitialCapitalPage() {
       {/* Items Table */}
       <Card className="shadow-md">
         <CardHeader>
-          <CardTitle>Capital Items List</CardTitle>
+          <CardTitle>Capital Items</CardTitle>
           <CardDescription>
-            Detailed list of all items recorded as initial capital.
+            List of all items purchased as initial capital.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading && capitalItems.length > 0 ? ( // Show loading indicator over table if refetching
-            <div className="flex justify-center py-4">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : null}
-
-          {capitalItems.length === 0 && !isLoading ? (
+          {capitalItems.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Package className="mx-auto h-12 w-12 mb-4 opacity-50" />
               <p>No capital items added yet.</p>
-              <p className="text-sm">Click "Add New Item" to record your investments.</p>
+              <p className="text-sm">Add items to track your initial investment.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -367,30 +363,26 @@ export default function InitialCapitalPage() {
                   <TableRow>
                     <TableHead>Item Name</TableHead>
                     <TableHead>Quantity</TableHead>
-                    <TableHead>Price Per Unit (USD)</TableHead>
-                    <TableHead>Total Cost (USD/LBP)</TableHead>
-                    <TableHead>Date Added</TableHead>
+                    <TableHead>Price Per Unit</TableHead>
+                    <TableHead>Total Cost</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {capitalItems.map((item) => (
-                    // Ensure no extra whitespace within TableRow
                     <TableRow key={item.id}>
                       <TableCell className="font-medium">{item.itemName}</TableCell>
                       <TableCell>{item.quantity}</TableCell>
-                      <TableCell>{displayCurrencyDual(item.pricePerUnit).split(' / ')[0]}</TableCell> {/* Show only USD price per unit */}
+                      <TableCell>{displayCurrencyDual(item.pricePerUnit)}</TableCell>
                       <TableCell>{displayCurrencyDual(item.totalCost)}</TableCell>
-                      <TableCell>{item.dateAdded ? item.dateAdded.toDate().toLocaleDateString() : 'N/A'}</TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
                           onClick={() => deleteCapitalItem(item.id, item.itemName)}
-                          disabled={isLoading} // Disable delete while another operation is in progress
                           aria-label={`Delete ${item.itemName}`}
-                          className="h-8 w-8"
-                        ><Trash2 className="h-4 w-4 text-destructive" />
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -404,4 +396,3 @@ export default function InitialCapitalPage() {
     </div>
   );
 }
-        

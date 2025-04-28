@@ -1,19 +1,20 @@
+
 "use client";
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  UtensilsCrossed, 
-  BookOpen, 
-  History, 
-  Settings, 
-  LogOut, 
-  Package, 
-  ChefHat, 
-  FileText, 
-  UserCog, 
-  LayoutDashboard, 
-  DollarSign 
+import {
+  UtensilsCrossed,
+  BookOpen,
+  History,
+  LogOut,
+  Package,
+  ChefHat,
+  FileText,
+  UserCog,
+  LayoutDashboard,
+  DollarSign,
+  Settings, // Import Settings icon
 } from 'lucide-react';
 import {
   Sidebar,
@@ -41,7 +42,7 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const { toast } = useToast();
   const { user, loading } = useAuth();
-  const { state } = useSidebar();
+  const { state, toggleSidebar } = useSidebar(); // Ensure toggleSidebar is available
 
   const handleLogout = async () => {
     try {
@@ -50,10 +51,10 @@ export default function AppSidebar() {
       window.location.href = '/login';
     } catch (error: any) {
       console.error("Logout Failed:", error);
-      toast({ 
-        variant: "destructive", 
-        title: "Logout Failed", 
-        description: error.message || "Could not log out." 
+      toast({
+        variant: "destructive",
+        title: "Logout Failed",
+        description: error.message || "Could not log out."
       });
     }
   };
@@ -81,14 +82,14 @@ export default function AppSidebar() {
 
   // Updated manager links to include Initial Capital
   const managerLinks = [
-    { href: '/manager/dashboard', label: 'Manager Dash', icon: Settings },
+    { href: '/manager/dashboard', label: 'Manager Dash', icon: Settings }, // Use imported Settings
     { href: '/manager/initial-capital', label: 'Initial Capital', icon: DollarSign },
     { href: '/manager/manage-menu', label: 'Manage Menu', icon: BookOpen },
     { href: '/manager/manage-stock', label: 'Manage Stock', icon: Package },
     { href: '/manager/all-bills', label: 'All Bills', icon: FileText },
     { href: '/manager/manage-users', label: 'Manage Users', icon: UserCog },
-    { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed },
-    { href: '/manager/settings', label: 'Settings', icon: Settings },
+    { href: '/chef/orders-queue', label: 'Orders Queue', icon: UtensilsCrossed }, // Keep chef path for consistency
+    { href: '/manager/settings', label: 'Settings', icon: Settings }, // Use imported Settings
   ];
 
   // Determine links based on fetched role
@@ -182,9 +183,10 @@ export default function AppSidebar() {
                       >
                         <link.icon className={cn(
                           "shrink-0",
-                          !isActiveLink(link.href) && "group-hover:text-accent-foreground"
+                          state === 'collapsed' && 'mx-auto', // Center icon when collapsed
+                          isActiveLink(link.href) ? 'text-primary-foreground' : 'text-muted-foreground group-hover:text-accent-foreground' // Icon color
                         )} />
-                        <span className={cn("transition-opacity duration-200", state === 'collapsed' ? 'opacity-0' : 'opacity-100')}>
+                        <span className={cn("transition-opacity duration-200", state === 'collapsed' ? 'opacity-0 hidden' : 'opacity-100')}>
                           {link.label}
                         </span>
                       </SidebarMenuButton>
@@ -209,17 +211,17 @@ export default function AppSidebar() {
               <AvatarImage src={userData.imageUrl} alt={userData.name || 'User'} />
               <AvatarFallback>{getInitials(userData.name)}</AvatarFallback>
             </Avatar>
-            <div className={cn("flex flex-col text-xs transition-[opacity,margin] duration-200 ease-linear", state === 'collapsed' ? 'opacity-0 ml-0' : 'opacity-100 ml-0')}>
+            <div className={cn("flex flex-col text-xs transition-[opacity,margin] duration-200 ease-linear", state === 'collapsed' ? 'opacity-0 ml-0 hidden' : 'opacity-100 ml-0')}>
               <span className="font-semibold">{userData.name || 'User'}</span>
               <span className="text-muted-foreground">{userData.email || 'No Email'}</span>
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className={cn("ml-auto h-8 w-8", state === 'collapsed' && 'hidden')} 
-                  onClick={handleLogout} 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("ml-auto h-8 w-8", state === 'collapsed' && 'hidden')}
+                  onClick={handleLogout}
                   aria-label="Logout"
                 >
                   <LogOut size={16} />
@@ -235,11 +237,11 @@ export default function AppSidebar() {
           {state === 'collapsed' && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="w-full mt-2 h-8 hover:bg-accent hover:text-accent-foreground" 
-                  onClick={handleLogout} 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="w-full mt-2 h-8 hover:bg-accent hover:text-accent-foreground"
+                  onClick={handleLogout}
                   aria-label="Logout"
                 >
                   <LogOut size={16} />

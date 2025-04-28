@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -16,11 +15,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 // Define state for fetched stats
 interface DashboardStats {
   totalUsers: number;
-  pendingBills: number; // Renamed for clarity
-  lowStockItems: number; // Keep this if tracking menu item stock directly
+  pendingBills: number;
+  lowStockItems: number;
   totalRevenueMonthUsd: number;
-  initialCapitalUsd: number; // Added to store total initial capital
-  netProfitUsd: number; // Added for net profit calculation
+  initialCapitalUsd: number;
+  netProfitUsd: number;
   monthlyRevenue: { month: string; sales: number }[];
 }
 
@@ -73,84 +72,85 @@ export default function ManagerDashboardPage() {
       setIsLoading(true);
       setError(null);
       try {
-        // --- Firebase Collections ---
-        const usersCollection = collection(db, 'users');
-        const menuItemsCollection = collection(db, 'menuItems'); // Using menuItems for stock
-        const ordersCollection = collection(db, 'orders');
-        const capitalCollection = collection(db, 'initialCapital'); // For initial capital
-
         // 1. Fetch Total Users
+        const usersCollection = collection(db, 'users');
         const usersSnapshot = await getCountFromServer(usersCollection);
         const totalUsers = usersSnapshot.data().count;
 
-        // 2. Fetch Pending Bills (users whose monthly bill hasn't been marked as paid)
-        // This needs a mechanism to mark bills as paid, e.g., a 'billPaid' field on the user doc.
-        // For now, count users with 'client' or 'chef' role as potentially having bills.
-        // This is a placeholder; a proper billing system is needed.
-        const billableUsersQuery = query(usersCollection, where('role', 'in', ['client', 'chef']));
-        const billableUsersSnapshot = await getCountFromServer(billableUsersQuery);
-        const pendingBillsCount = billableUsersSnapshot.data().count; // Placeholder logic
+        // 2. Fetch Pending Bills (users who haven't settled their bills)
+        // Query users with billPaid = false
+        const pendingBillsQuery = query(usersCollection, where('billPaid', '==', false));
+        const pendingBillsSnapshot = await getDocs(pendingBillsQuery);
+        const pendingBillsCount = pendingBillsSnapshot.size;
 
-        // 3. Fetch Low Stock Items (items with quantity < threshold)
-        const LOW_STOCK_THRESHOLD = 10; // Define threshold
-        const lowStockQuery = query(menuItemsCollection, where('quantityInStock', '<', LOW_STOCK_THRESHOLD));
-        const lowStockSnapshot = await getCountFromServer(lowStockQuery);
-        const lowStockItemsCount = lowStockSnapshot.data().count;
+        // 3. Fetch Low Stock Items (items with quantity < 10)
+        const stockCollection = collection(db, 'stock');
+        const lowStockQuery = query(stockCollection, where('quantity', '<', 10));
+        const lowStockSnapshot = await getDocs(lowStockQuery);
+        const lowStockItemsCount = lowStockSnapshot.size;
 
-        // 4. Calculate Initial Capital (sum of totalCost from 'initialCapital' collection)
+        // 4. Calculate Initial Capital (sum of all purchased items)
+        const capitalCollection = collection(db, 'initialCapital');
         const capitalSnapshot = await getDocs(capitalCollection);
         let initialCapitalUsd = 0;
+        
         capitalSnapshot.forEach(doc => {
           const capitalData = doc.data();
-          // Check if totalCost exists and is a number
           if (capitalData.totalCost && typeof capitalData.totalCost === 'number') {
             initialCapitalUsd += capitalData.totalCost;
           }
         });
 
-
         // 5. Calculate Total Revenue for Current Month
         const now = new Date();
         const monthStart = startOfMonth(now);
         const monthEnd = endOfMonth(now);
+        
+        const ordersCollection = collection(db, 'orders');
         const revenueQuery = query(
           ordersCollection,
           where('orderTimestamp', '>=', Timestamp.fromDate(monthStart)),
           where('orderTimestamp', '<=', Timestamp.fromDate(monthEnd))
         );
+        
         const ordersSnapshot = await getDocs(revenueQuery);
         let totalRevenueMonthUsd = 0;
+        
         ordersSnapshot.forEach(doc => {
           const orderData = doc.data();
           if (orderData.total && typeof orderData.total === 'number') {
             totalRevenueMonthUsd += orderData.total;
           }
         });
-
-        // 6. Calculate Net Profit
+        
+        // Calculate net profit
         const netProfitUsd = totalRevenueMonthUsd - initialCapitalUsd;
 
-
-        // 7. Generate Monthly Revenue Data for Chart (last 6 months)
+        // 6. Generate Monthly Revenue Data for Chart (last 6 months)
         const monthlySalesData = [];
         const currentDate = new Date();
+        
         for (let i = 5; i >= 0; i--) {
           const targetMonth = subMonths(currentDate, i);
           const monthStartDate = startOfMonth(targetMonth);
           const monthEndDate = endOfMonth(targetMonth);
+          
           const monthQuery = query(
             ordersCollection,
             where('orderTimestamp', '>=', Timestamp.fromDate(monthStartDate)),
             where('orderTimestamp', '<=', Timestamp.fromDate(monthEndDate))
           );
+          
           const monthOrdersSnapshot = await getDocs(monthQuery);
           let monthRevenue = 0;
+          
           monthOrdersSnapshot.forEach(doc => {
             const orderData = doc.data();
             if (orderData.total && typeof orderData.total === 'number') {
               monthRevenue += orderData.total;
             }
           });
+          
           monthlySalesData.push({
             month: format(targetMonth, 'MMM'),
             sales: monthRevenue
@@ -160,11 +160,11 @@ export default function ManagerDashboardPage() {
         // Set all the stats
         setDashboardStats({
           totalUsers,
-          pendingBills: pendingBillsCount, // Using placeholder count
+          pendingBills: pendingBillsCount,
           lowStockItems: lowStockItemsCount,
           totalRevenueMonthUsd,
-          initialCapitalUsd, // Add initial capital
-          netProfitUsd, // Add net profit
+          initialCapitalUsd,
+          netProfitUsd,
           monthlyRevenue: monthlySalesData
         });
 
@@ -178,7 +178,7 @@ export default function ManagerDashboardPage() {
     };
 
     fetchDashboardData();
-  }, []); // Fetch data on component mount
+  }, []);
 
   // Display loading state
   if (isLoading) {
@@ -192,13 +192,11 @@ export default function ManagerDashboardPage() {
           <Skeleton className="h-28" />
           <Skeleton className="h-28" />
         </div>
-        {/* Skeleton for Financial Overview & Management Actions */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-           <Skeleton className="h-48 lg:col-span-1" /> {/* Adjusted height */}
-           <Skeleton className="h-48 lg:col-span-2" /> {/* Adjusted height */}
+        {/* Skeleton for Quick Links & Chart */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Skeleton className="h-96 lg:col-span-1" />
+          <Skeleton className="h-96 lg:col-span-2" />
         </div>
-        {/* Skeleton for Chart */}
-        <Skeleton className="h-96" />
       </div>
     );
   }
@@ -230,7 +228,6 @@ export default function ManagerDashboardPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* Total Users */}
         <Card className="shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Users</CardTitle>
@@ -242,7 +239,6 @@ export default function ManagerDashboardPage() {
           </CardContent>
         </Card>
         
-        {/* Pending Bills (Placeholder) */}
         <Card className="shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pending Bills</CardTitle>
@@ -250,23 +246,21 @@ export default function ManagerDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{dashboardStats?.pendingBills ?? 'N/A'}</div>
-            <p className="text-xs text-muted-foreground">Billable users (approx.)</p>
+            <p className="text-xs text-muted-foreground">Users with unpaid bills</p>
           </CardContent>
         </Card>
         
-        {/* Low Stock Items */}
         <Card className="shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{dashboardStats?.lowStockItems ?? 'N/A'}</div>
+            <div className="text-2xl font-bold">{dashboardStats?.lowStockItems ?? 'N/A'}</div>
             <p className="text-xs text-muted-foreground">Items needing reorder</p>
           </CardContent>
         </Card>
         
-        {/* Monthly Revenue */}
         <Card className="shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Revenue ({format(new Date(), 'MMMM')})</CardTitle>
@@ -288,20 +282,17 @@ export default function ManagerDashboardPage() {
             <CardDescription>Summary of current finances</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-             {/* Initial Capital */}
             <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Initial Capital:</span>
+              <span className="text-sm">Initial Capital:</span>
               <span className="font-medium">{displayCurrencyDual(dashboardStats?.initialCapitalUsd ?? 0)}</span>
             </div>
-             {/* Total Revenue */}
             <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Total Revenue ({format(new Date(), 'MMMM')}):</span>
+              <span className="text-sm">Total Revenue:</span>
               <span className="font-medium">{displayCurrencyDual(dashboardStats?.totalRevenueMonthUsd ?? 0)}</span>
             </div>
             <div className="h-px bg-muted my-2" />
-             {/* Net Profit */}
             <div className="flex justify-between items-center">
-              <span className="text-sm font-medium">Net Profit ({format(new Date(), 'MMMM')}):</span>
+              <span className="text-sm font-medium">Net Profit:</span>
               <span className={`font-bold ${(dashboardStats?.netProfitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {displayCurrencyDual(dashboardStats?.netProfitUsd ?? 0)}
               </span>
@@ -316,13 +307,7 @@ export default function ManagerDashboardPage() {
             <CardDescription>Quick access to management tasks.</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Added Initial Capital link */}
-             <Link href="/manager/initial-capital" passHref>
-              <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
-                <DollarSign /> Initial Capital
-              </Button>
-            </Link>
-             <Link href="/manager/manage-users" passHref>
+            <Link href="/manager/manage-users" passHref>
               <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
                 <Users /> Manage Users
               </Button>
@@ -342,13 +327,16 @@ export default function ManagerDashboardPage() {
                 <Package /> Manage Stock
               </Button>
             </Link>
+            <Link href="/manager/initial-capital" passHref>
+              <Button variant="outline" className="w-full justify-start gap-2 border-primary text-primary hover:bg-accent hover:text-accent-foreground">
+                <DollarSign /> Initial Capital
+              </Button>
+            </Link>
             <Link href="/chef/orders-queue" passHref>
               <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground hover:bg-secondary">
                 <UtensilsCrossed /> View Orders Queue
               </Button>
             </Link>
-            {/* Removed Settings link as it's in sidebar */}
-            {/* <Link href="/manager/settings" passHref>...</Link> */}
           </CardContent>
         </Card>
       </div>
@@ -375,4 +363,3 @@ export default function ManagerDashboardPage() {
     </div>
   );
 }
-        
