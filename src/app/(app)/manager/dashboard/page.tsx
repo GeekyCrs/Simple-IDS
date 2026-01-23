@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -32,15 +31,24 @@ function CustomTooltip({ active, payload, label }: TooltipProps<ValueType, NameT
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     const usdValue = payload[0].value as number;
+    const lbpValue = usdValue * 90000;
 
     return (
       <div className="rounded-lg border bg-background p-2 shadow-md text-xs">
         <p className="font-bold mb-1">{label}</p>
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-primary" />
-          <span className="font-medium">
-            Sales: {displayCurrencyDual(usdValue)}
-          </span>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-primary" />
+            <span className="font-medium">
+              ${usdValue.toFixed(2)} USD
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-primary opacity-70" />
+            <span className="font-medium">
+              {lbpValue.toLocaleString()} LBP
+            </span>
+          </div>
         </div>
       </div>
     );
@@ -73,23 +81,27 @@ export default function ManagerDashboardPage() {
       setIsLoading(true);
       setError(null);
       try {
+        console.log("Starting dashboard data fetch...");
+        
         // 1. Fetch Total Users
         const usersCollection = collection(db, 'users');
         const usersSnapshot = await getCountFromServer(usersCollection);
         const totalUsers = usersSnapshot.data().count;
+        console.log("Total users fetched:", totalUsers);
 
-        // 2. Fetch Pending Bills (users who haven't settled their bills)
-        // Query users with billPaid = false
-        const pendingBillsQuery = query(usersCollection, where('billPaid', '==', false));
+        // 2. Fetch Pending Bills from bills collection
+        const billsCollection = collection(db, 'bills');
+        const pendingBillsQuery = query(billsCollection, where('isPaid', '==', false));
         const pendingBillsSnapshot = await getDocs(pendingBillsQuery);
         const pendingBillsCount = pendingBillsSnapshot.size;
+        console.log("Pending bills fetched:", pendingBillsCount);
 
-        // 3. Fetch Low Stock Items (items with quantity < 10) - Assuming from menuItems
+        // 3. Fetch Low Stock Items (items with quantity < 10)
         const menuItemsCollection = collection(db, 'menuItems');
         const lowStockQuery = query(menuItemsCollection, where('quantityInStock', '<', 10));
         const lowStockSnapshot = await getDocs(lowStockQuery);
         const lowStockItemsCount = lowStockSnapshot.size;
-
+        console.log("Low stock items fetched:", lowStockItemsCount);
 
         // 4. Calculate Initial Capital (sum of all purchased items)
         const capitalCollection = collection(db, 'initialCapital');
@@ -102,6 +114,7 @@ export default function ManagerDashboardPage() {
             initialCapitalUsd += capitalData.totalCost;
           }
         });
+        console.log("Initial capital calculated:", initialCapitalUsd);
 
         // 5. Calculate Total Revenue for Current Month
         const now = new Date();
@@ -124,9 +137,32 @@ export default function ManagerDashboardPage() {
             totalRevenueMonthUsd += orderData.total;
           }
         });
+        console.log("Current month revenue calculated:", totalRevenueMonthUsd);
 
-        // Calculate net profit
-        const netProfitUsd = totalRevenueMonthUsd - initialCapitalUsd;
+        // Calculate net profit (monthly revenue - initial capital)
+        // For monthly expenses, we'll use initial monthly capital
+        const monthlyCapitalQuery = query(
+          capitalCollection,
+          where('month', '==', format(now, 'yyyy-MM'))
+        );
+        
+        const monthlyCapitalSnapshot = await getDocs(monthlyCapitalQuery);
+        let monthlyCapitalUsd = 0;
+        
+        monthlyCapitalSnapshot.forEach(doc => {
+          const capitalData = doc.data();
+          if (capitalData.totalCost && typeof capitalData.totalCost === 'number') {
+            monthlyCapitalUsd += capitalData.totalCost;
+          }
+        });
+        console.log("Monthly capital calculated:", monthlyCapitalUsd);
+        
+        // If no monthly capital is found, use a portion of the initial capital
+        if (monthlyCapitalUsd === 0) {
+          monthlyCapitalUsd = initialCapitalUsd / 12; // Simple estimation
+        }
+        
+        const netProfitUsd = totalRevenueMonthUsd - monthlyCapitalUsd;
 
         // 6. Generate Monthly Revenue Data for Chart (last 6 months)
         const monthlySalesData = [];
@@ -158,6 +194,7 @@ export default function ManagerDashboardPage() {
             sales: monthRevenue
           });
         }
+        console.log("Monthly revenue data generated:", monthlySalesData);
 
         // Set all the stats
         setDashboardStats({
@@ -170,6 +207,7 @@ export default function ManagerDashboardPage() {
           monthlyRevenue: monthlySalesData
         });
 
+        console.log("All dashboard data fetched successfully!");
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
         setError("Failed to load dashboard data. Please try again.");
@@ -187,6 +225,10 @@ export default function ManagerDashboardPage() {
     return (
       <div className="container mx-auto py-8">
         <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><LayoutDashboard /> Manager Dashboard</h1>
+        <div className="mb-4 text-sm text-muted-foreground">
+          <Loader2 className="inline-block mr-2 h-4 w-4 animate-spin" />
+          Loading dashboard data from Firebase...
+        </div>
         {/* Skeleton for Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Skeleton className="h-28" />
@@ -269,7 +311,10 @@ export default function ManagerDashboardPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-bold">{displayCurrencyDual(dashboardStats?.totalRevenueMonthUsd ?? 0)}</div>
+            <div className="text-xl font-bold">
+              <div>{`${(dashboardStats?.totalRevenueMonthUsd ?? 0).toFixed(2)} USD`}</div>
+              <div className="text-sm text-muted-foreground">{`${((dashboardStats?.totalRevenueMonthUsd ?? 0) * 90000).toLocaleString()} LBP`}</div>
+            </div>
             <p className="text-xs text-muted-foreground">Total value of orders</p>
           </CardContent>
         </Card>
@@ -286,17 +331,24 @@ export default function ManagerDashboardPage() {
           <CardContent className="space-y-4">
             <div className="flex justify-between items-center">
               <span className="text-sm">Initial Capital:</span>
-              <span className="font-medium">{displayCurrencyDual(dashboardStats?.initialCapitalUsd ?? 0)}</span>
+              <span className="font-medium">
+                <div>{`${(dashboardStats?.initialCapitalUsd ?? 0).toFixed(2)} USD`}</div>
+                <div className="text-xs text-muted-foreground">{`${((dashboardStats?.initialCapitalUsd ?? 0) * 90000).toLocaleString()} LBP`}</div>
+              </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm">Total Revenue:</span>
-              <span className="font-medium">{displayCurrencyDual(dashboardStats?.totalRevenueMonthUsd ?? 0)}</span>
+              <span className="font-medium">
+                <div>{`${(dashboardStats?.totalRevenueMonthUsd ?? 0).toFixed(2)} USD`}</div>
+                <div className="text-xs text-muted-foreground">{`${((dashboardStats?.totalRevenueMonthUsd ?? 0) * 90000).toLocaleString()} LBP`}</div>
+              </span>
             </div>
             <div className="h-px bg-muted my-2" />
             <div className="flex justify-between items-center">
               <span className="text-sm font-medium">Net Profit:</span>
               <span className={`font-bold ${(dashboardStats?.netProfitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {displayCurrencyDual(dashboardStats?.netProfitUsd ?? 0)}
+                <div>{`${(dashboardStats?.netProfitUsd ?? 0).toFixed(2)} USD`}</div>
+                <div className="text-xs">{`${((dashboardStats?.netProfitUsd ?? 0) * 90000).toLocaleString()} LBP`}</div>
               </span>
             </div>
           </CardContent>
@@ -339,7 +391,6 @@ export default function ManagerDashboardPage() {
                 <UtensilsCrossed /> View Orders Queue
               </Button>
             </Link>
-            {/* Removed Settings Button */}
           </CardContent>
         </Card>
       </div>

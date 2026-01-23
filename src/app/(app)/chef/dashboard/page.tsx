@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase'; // Import Firestore instance
 import { collection, addDoc, query, where, getDocs, limit, Timestamp, serverTimestamp, doc, setDoc, getCountFromServer } from 'firebase/firestore'; // Firestore imports
 import { format } from 'date-fns';
+import { sendPushNotification } from '@/services/push-notifications';
 import { displayCurrencyDual } from '@/lib/utils'; // Import currency utility
 
 export default function ChefDashboardPage() {
@@ -89,11 +90,20 @@ export default function ChefDashboardPage() {
         description: `${mealName} is now available for ${formattedPrice}. Notifications sent (simulated).`
       });
 
-      // TODO: Trigger actual push notifications via Cloud Function
-      console.log("Push notification trigger simulated for all clients.");
+      const notificationMessage = `New Daily Meal: ${mealName} for ${formattedPrice}!`;
+
+      // Trigger push notifications to all users
+      try {
+        await sendPushNotification(notificationMessage);
+        console.log("Push notifications sent successfully to all users.");
+      } catch (error) {
+        console.error("Error sending push notifications:", error);
+        toast({ variant: "destructive", title: "Notification Error", description: "Failed to send push notifications to users." });
+      }
 
       setDailyMealPosted(true);
       setMealName('');
+
       setMealDescription('');
       setMealPriceUsd(''); // Reset USD price input
 

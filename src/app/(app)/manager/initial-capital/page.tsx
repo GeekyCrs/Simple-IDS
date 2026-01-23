@@ -157,14 +157,17 @@ export default function InitialCapitalPage() {
   const deleteCapitalItem = async (id: string, itemName: string) => {
     // Get user confirmation
     const confirmDelete = window.confirm(`Are you sure you want to delete ${itemName}? This won't remove the item from stock.`);
-    
+
     if (confirmDelete) {
       try {
-        // Create a reference to the document
+        // Delete the item from the initialCapital collection
         const itemDocRef = doc(db, 'initialCapital', id);
-        
-        // Delete the document
         await deleteDoc(itemDocRef);
+
+        // Delete the corresponding item from the stock collection
+        const stockItemRef = doc(db, 'stock', itemName);
+        await deleteDoc(stockItemRef);
+
         
         // Show success notification
         toast({
